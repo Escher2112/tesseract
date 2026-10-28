@@ -1042,28 +1042,32 @@ function drumPhys(d, u, dt) {
   if (!held && Math.abs(d.v) < 0.03 && Math.abs(d.p - Math.round(d.p)) < 0.004) { d.p = Math.round(d.p); d.v = 0; }
   return Math.abs(Math.round(d.p) - before);
 }
-const drumIdx = d => ((Math.round(d.p) % d.n) + d.n) % d.n;
+const drumIdx = d => { const n = d.wrap ? d.items.length : d.n; return ((Math.round(d.p) % n) + n) % n; };
 function drumItems() {
   const ago = since => { const m = Math.max(0, Math.round((Date.now() - since) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
-  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since);
-  const list = w.length ? w : visible();
-  return { waiting: w.length > 0, rows: list.map(i => ({ i, title: faces[i].title || (isWeb(i) ? faces[i].webTitle || 'browser' : 'shell'),
-    why: waiting(i) ? att[i].r : (i === cur() ? 'you are here' : 'not waiting'), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] })) };
+  // 14:25 Chris: "it's always staying on 15 Tezra… we should be able to roll the opposite way from 1 through 16, 15". It held only the
+  // WAITING sessions (one, then). Now: every session, in face order, wrapping both ways; it opens on the oldest waiting one (else where
+  // you are); waiting rows carry ◆! with the reason and how long.
+  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since), list = visible();
+  const rows = list.map(i => ({ i, title: faces[i].title || (isWeb(i) ? faces[i].webTitle || 'browser' : 'shell'),
+    why: waiting(i) ? '◆! ' + att[i].r : (i === cur() ? 'you are here' : ''), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] }));
+  const start = Math.max(0, list.indexOf(w.length ? w[0] : cur()));
+  return { waiting: w.length, rows, start };
 }
 function showDrum(on) {
   if (!on) { drumEl.classList.remove('on'); cancelAnimationFrame(drum.raf); if (drum.gl && window.GL) window.GL.drumClose(); drum.gl = false; drumEl.replaceChildren(); return; }
-  showQuickRef(false); const { waiting: anyW, rows } = drumItems();
+  showQuickRef(false); const { waiting: anyW, rows, start } = drumItems();
   // 14:07 Chris: "a crayon drawing… model it in actual 3D… obsidian, not cardboard". With the WebGL renderer on, gl.js draws a real
   // obsidian reel with chrome end caps (GL.drumOpen / drumRender); the CSS drum below stays only as the fallback when WebGL is off.
   drum.gl = !!(window.GL && window.GL.drumOpen && prefs.gl !== false);
-  if (drum.gl) { drum.items = rows; drum.n = rows.length; drum.p = 0; drum.v = 0;
-    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `WAITING · ${rows.length}` : 'NOTHING WAITING · ALL SESSIONS'}</span></div><div class="dstage dstage3d"></div>` +
+  if (drum.gl) { drum.items = rows; drum.n = rows.length; drum.p = start; drum.v = 0; drum.wrap = true;
+    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `${anyW} WAITING · ${rows.length} SESSIONS` : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div><div class="dstage dstage3d"></div>` +
       `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div>`;
     try { window.GL.drumOpen(drumEl.querySelector('.dstage3d'), rows.map(it => ({ no: it.i + 1, title: it.title, age: it.age, color: it.g ? prefs.palette[it.g - 1] : null,
-      sub: it.why + (it.g ? ' · ' + colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : '') })));
+      sub: [it.why, it.g ? colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : ''].filter(Boolean).join(' · ') })), start);
       drumEl.classList.add('on'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame); return; }
     catch (e) { console.warn('[drum] 3D failed, using the flat drum:', e); toast('3D drum failed (' + (e && e.message || e) + ') · showing the flat one'); drum.gl = false; } }
-  drum.items = rows; drum.n = Math.max(rows.length + 2, 8);   // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends) drum.p = 0; drum.v = 0; drum.front = -1;
+  drum.items = rows; drum.n = Math.max(rows.length + 2, 8); drum.wrap = false;   // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends) drum.p = 0; drum.v = 0; drum.front = -1;
   const n = drum.n, dh = 84, dw = Math.min(640, innerWidth - 200), r = dh / (2 * Math.tan(Math.PI / n)), R = dh / (2 * Math.sin(Math.PI / n)), al = 360 / n;
   const poly = [...Array(n)].map((_, j) => { const f = (j + 0.5) * 2 * Math.PI / n; return `${(50 + 50 * Math.cos(f)).toFixed(2)}% ${(50 + 50 * Math.sin(f)).toFixed(2)}%`; }).join(',');
   const facesHtml = [...Array(n)].map((_, k) => { const it = rows[k];
@@ -1083,9 +1087,11 @@ function drumFrame(now) {
   const h = handInput(false, true), m = mo(); let u = shape(h.iy, m); u = -u + (drum.kick || 0); drum.kick = 0;   // push forward = the next one rolls up
   // 14:23 Chris: "pushing in on it (I scrolled to github) didn't go there". A push always leaks some tilt before it counts as a push, and
   // that rolled the drum a notch. Now the moment you start pushing in, the drum freezes on the row in the frame, and that's where you go.
-  if (Math.abs(sbT[2]) > 60) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
+  // a clear push in (z well above every other axis), not a tilt that leaks a little z
+  const pushZ = Math.abs(sbT[2]), pushOther = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
+  if (pushZ > 90 && pushZ > 1.5 * pushOther) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
   let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
-  if (drum.p < 0 || drum.p > hi) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
+  if (!drum.wrap && (drum.p < 0 || drum.p > hi)) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
   if (crossed) clickSound(2600, 0.16);
   if (drum.gl) { window.GL.drumRender(drum.p); drum.raf = requestAnimationFrame(drumFrame); return; }
   const n = drum.n, al = 360 / n, rot = document.getElementById('drot'); if (rot) rot.style.transform = `rotateX(${drum.p * al}deg)`;

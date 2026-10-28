@@ -391,7 +391,7 @@ function drumBuild(W) {
   // canvas: wide enough for the bearings, tall enough for the drum's full height; camera = the page's 2200 px perspective, so 1 unit = 1 CSS px at the front facet
   console.log(`[gl] drum: ${N} facets, facet ${h}px × ${W}px, radius ${r.toFixed(1)}, flange ${Rf.toFixed(1)}, canvas height ${chh}`);
 }
-export function drumOpen(host, rows) {
+export function drumOpen(host, rows, start = 0) {
   if (!dR) { const cv = document.createElement('canvas'); cv.id = 'drumgl';
     const rd = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); rd.setClearColor(0x000000, 0);
     rd.toneMapping = THREE.ACESFilmicToneMapping; rd.toneMappingExposure = 0.95; rd.outputColorSpace = THREE.SRGBColorSpace; rd.setPixelRatio(Math.min(2, devicePixelRatio || 1));
@@ -404,14 +404,15 @@ export function drumOpen(host, rows) {
   dR.camera.position.set(0, dR.ay + 330, 2200); dR.camera.lookAt(0, dR.ay - 30, -dR.r); dR.camera.updateProjectionMatrix();
   dR.t0 = performance.now(); dR.rise = 0;
   dR.scene.environment = dR.env.texture; dR.rows = rows; dR.tex = new Map(); dR.facets.forEach(f => { f.row = -2; f.m.visible = false; });
-  host.appendChild(dR.canvas); dR.last = null; drumRender(0);
+  host.appendChild(dR.canvas); dR.last = null; drumRender(start);
 }
 export function drumRender(p) {
   if (!dR || !dR.rows) return;
   const k = Math.min(1, (performance.now() - dR.t0) / 520), e = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);   // rises out of the floor, a touch of overshoot, seats
   if (dR.last === p && dR.rise === 1) return; dR.last = p; dR.rise = k; dR.rig.position.y = -(1 - e) * dR.chh;
   const { N } = DRUM, al = dR.al; dR.drum.rotation.x = p * al;
-  dR.facets.forEach(f => { const i = f.k + N * Math.round((p - f.k) / N), row = dR.rows[i];
+  const L = dR.rows.length;   // the rows WRAP (14:25): facet k shows row (k + N·m) mod L, the m nearest p
+  dR.facets.forEach(f => { const i = ((f.k + N * Math.round((p - f.k) / N)) % L + L) % L, row = dR.rows[i];
     if (i !== f.row) { f.row = i; if (row) { let t = dR.tex.get(i); if (!t) { t = drumRowTex(row, dR.W - 30, DRUM.h - 2 * DRUM.ch - 6); dR.tex.set(i, t); }
       f.m.material.map = t; f.m.material.needsUpdate = true; f.m.visible = true; } else f.m.visible = false; }
     const face = Math.cos((f.k - p) * al), lit = Math.max(0, face); f.m.material.color.setScalar(0.18 + 0.82 * Math.pow(lit, 1.6)); f.m.material.opacity = Math.min(1, lit * 1.6); });

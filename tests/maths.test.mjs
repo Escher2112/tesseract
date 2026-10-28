@@ -38,7 +38,7 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'drumPhys', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'drumPhys', 'drumIdx', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
@@ -156,6 +156,9 @@ for (const dt of [1 / 60, 1 / 30, 0.05]) {
   check(d.p === 0 && d.v === 0, `drum: at rest with no push it stays put`); }
 { const n = run('(() => { const d = { p: 0, v: 0 }; let c = 0; for (let k = 0; k < 120; k++) c += drumPhys(d, 1, 1 / 60); for (let k = 0; k < 600; k++) c += drumPhys(d, 0, 1 / 60); return [c, d.p]; })()');
   check(n[0] === Math.abs(n[1]), `drum: one click per facet that goes by (${n[0]} clicks, ended ${n[1]} facets on)`); }
+
+{ const ids = run(`[-1, -2, 0, 5, 6, 13].map(p => drumIdx({ p, wrap: true, items: [0, 1, 2, 3, 4, 5], n: 6 }))`);
+  check(JSON.stringify(ids) === '[5,4,0,5,0,1]', `drum wraps both ways: back from row 1 comes the last (${JSON.stringify(ids)}, want [5,4,0,5,0,1])`); }
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
