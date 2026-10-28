@@ -444,7 +444,7 @@ function goTo(i) {                                                     // the sh
   if (frontOf(Qt) !== i) {
     const w = rotV(Qt, SH.slots[slotOf[i]].n), c = V.cross(w, [0, 0, 1]), sn = Math.hypot(...c);
     const ax = sn < 1e-6 ? [0, 1, 0] : V.mul(c, 1 / sn), deg = Math.atan2(sn, w[2]) * 180 / Math.PI;
-    Qt = alignQ(qNorm(qMul(qAxis(ax[0], ax[1], ax[2], deg), Qt)));
+    Qt = alignQ(qNorm(qMul(qAxis(ax[0], ax[1], ax[2], deg), Qt))); settled = false;   // a new target: not settled until physics lands it (14:38: enterFace zoomed in mid-roll on a stale 'settled')
   }
   cmdTarget = true; present(Qt);
 }
@@ -474,7 +474,7 @@ function toggleFull() {
   }
   // 2026-10-28 Chris: long press on a new face (Claude's trust prompt) opened some OTHER session: this used the last SELECTED face,
   // which stays put while you roll. Full screen is always the face in front of you, and typing goes there.
-  const i = frontFace(), f = faces[i], web = isWeb(i), from = f.inner.getBoundingClientRect(); select(i); fullFace = i; zooming = true;
+  const i = frontFace(), f = faces[i], web = isWeb(i), from = f.inner.getBoundingClientRect(); select(i); fullFace = i; zooming = true; noteVisit(i);   // full screen counts as landing there (14:38: a jump into full screen never reached physics, so history missed it)
   if (web) { webBar(f); f.host.classList.add('webhid'); fullSnap.src = f.inner.querySelector('.websnap').src || ''; fullSnap.style.display = 'block'; }
   full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); paint();
   label(f); renderAttn(); refit(f); f.term.focus();
@@ -784,6 +784,19 @@ function histGo(d) {
   if (n < 0 || n >= hist.length) { toast(`${d < 0 ? 'nothing to go back to yet' : 'nothing further forward'}  ·  history: ${hist.length ? hist.map((e, k) => (k === hpos ? '[' + (e.i + 1) + ']' : e.i + 1)).join(' ') : 'empty (it fills as you land on faces)'}`); return; }
   hpos = n; const c = hist[n]; if (c.i !== frontFace()) histNav = performance.now() + 3000;
   openFace(c.i, c.full); toast(`${d < 0 ? 'back' : 'forward'} to face ${c.i + 1}  ·  ${n + 1} of ${hist.length}`);
+}
+// 09:46 Chris: with only the Spaceball it took "button 6, navigate and press, button 6 back, pull face to focus, deal with it, push out,
+// button 6 again, repeat". Now ONE press of jump rolls to the oldest waiting face AND zooms in; ONE press of back returns exactly where
+// he was. openFace sequences the zooms: leaving one full-screen face finishes its zoom-out before rolling and zooming into the next
+// (before, the second zoom fired mid-animation and was silently ignored).
+// ⛔ 14:35: an edit at 13:56 (history back/forward) cut this function out by position and nobody noticed for 40 minutes: jump, the drum,
+// history back/forward and colour taps all silently threw. tests/maths.test.mjs now extracts it (and the other navigators), so a missing
+// one fails the test run.
+function openFace(i, wantFull) {
+  const go = () => { if (wantFull) enterFace(i); else { goTo(i); select(i); } renderAttn(); };
+  if (fullFace === i) { if (!wantFull) toggleFull(); return; }
+  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
+  else go();
 }
 function jumpTo(i) {                                                     // go to a waiting face and straight in, remembering exactly where you were
   const here = fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace()); if (here === i) return;

@@ -38,7 +38,7 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'drumPhys', 'drumIdx', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'drumPhys', 'drumIdx', 'openFace', 'jumpTo', 'jumpNext', 'histGo', 'goBack', 'goForward', 'cycleColor', 'enterFace', 'drumGo', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
