@@ -856,7 +856,7 @@ const sparse = o => o;                                                   // {but
 const L_TWO = { 1: 'Left', 2: 'Right' };
 const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
 const LAYOUTS = {
-  c621: { model: 'Spaceball 5000', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
+  c621: { model: 'Spaceball 5000', roll: 'tilt', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
           preset: { select: 1, full: 2, home: 3, color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 } },
   c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
@@ -1099,7 +1099,9 @@ function shape(v, m) { const a = Math.abs(v); if (a <= m.dead) return 0; const x
 // can switch back to the original one-push-one-face stepping. (The twist/tilt "analog" mode of 07:35 is kept in code, not offered.)
 const navMode = () => (SH.name === 'cube' && prefs.cubeClassic ? 'step' : 'hand');
 function handInput(pushing) {
-  const f = prefs.flip || {}, tilt = prefs.handSrc === 'tilt';
+  // 10:54 Chris (from the Ball tab): sliding a Spaceball sideways is "a weird push-pull-lift thing… not intuitive", while tilting it is
+  // natural: you grip a ball. Pucks (SpaceMouse) slide easily. So the default follows the device (LAYOUTS[pid].roll); his own choice wins.
+  const f = prefs.flip || {}, tilt = (prefs.handSrc || ((devLayout() || {}).roll) || 'slide') === 'tilt';
   let ix = tilt ? -sbR[1] : sbT[0], iy = tilt ? sbR[0] : -sbT[1], tw = -sbR[2];       // screen right, screen up, clockwise twist (signs: ⚙ flips)
   if (f.x) ix = -ix; if (f.y) iy = -iy; if (f.t) tw = -tw;
   if (pushing) { ix = 0; iy = 0; tw = 0; }                                // pushing down / pulling up = select / full screen, never a roll
@@ -1150,7 +1152,7 @@ function renderMotion() {
   const sl = (k, label, min, max, step) => rng(`data-mo="${k}" min="${min}" max="${max}" step="${step}"`, label, m[k]);
   el.innerHTML = `<div class="note">Hold the solid in your hand: twist the ball to spin it, push any way to roll toward that side. These sliders are saved for the ${SHAPES[SH.name] ? SHAPES[SH.name].label.split(' · ')[0].toLowerCase() : SH.name}.</div>` +
     (SH.name === 'cube' ? tgl('p-classic', 'Classic control', 'Cube only: one push = one face, the original stepping.', prefs.cubeClassic) : '') +
-    `<div class="grp">The ball</div>` + fld('Roll with', seg('hsrc', [['slide', 'Slide the ball'], ['tilt', 'Tilt the ball']], prefs.handSrc === 'tilt' ? 'tilt' : 'slide')) +
+    `<div class="grp">The ball</div>` + fld('Roll with', seg('hsrc', [['slide', 'Slide the ball', 'natural on a puck (SpaceMouse)'], ['tilt', 'Tilt the ball', 'natural on a ball you grip (Spaceball)']], prefs.handSrc || ((devLayout() || {}).roll) || 'slide')) +
     fld('Flip a direction if it goes the wrong way', `<div class="three">` + [['x', 'left / right'], ['y', 'up / down'], ['t', 'twist']].map(([k, t]) => tgl('', t, '', fl[k], `data-flip="${k}"`)).join('') + `</div>`) +
     tgl('p-oneaxis', 'One motion at a time', 'Roll or twist, whichever is clearly stronger: a tilt never drags a twist along.', prefs.oneAxis !== false) +
     tgl('p-upright', 'Keep every screen’s text upright', 'Off = faces keep their own turn; you twist them yourself.', prefs.upright !== false) +
