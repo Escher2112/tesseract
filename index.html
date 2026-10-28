@@ -490,9 +490,9 @@ setTimeout(() => faces.forEach(refit), 300);
 // saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
 // pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
 const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
-  buttons: { select: 1, full: 2, home: 3, color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 },
+  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, back: 12 },   // Chris's Spaceball layout (11:23)
   glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15,
-  shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, handSrc: 'slide', flip: {}, cubeClassic: false };
+  shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, flip: {},   /* no handSrc default: it follows the device (LAYOUTS[pid].roll) unless he picks one (11:2x fix) */ cubeClassic: false };
 let prefs = JSON.parse(JSON.stringify(DEF));
 function loadPrefs(p) { prefs = Object.assign(JSON.parse(JSON.stringify(DEF)), p, { buttons: Object.assign({}, DEF.buttons, p.buttons || {}) }); applyPrefs(); }
 function savePrefs() { post('/config?prefs=1', JSON.stringify(prefs)); }
@@ -620,17 +620,20 @@ function assignColor(g) {
   if (prefs.cluster) toastUndo(msg + ' (faces regrouped)', () => { if (was) prefs.colors[i] = was; else delete prefs.colors[i]; savePrefs(); paint(); layout(); renderAttn(); }); else toast(msg);
 }
 function cycleColor(g) {                                                 // next face with colour g after the one you're on
-  const list = faces.map(f => f.i).filter(i => prefs.colors[i] === g); if (!list.length) { toast(`no face has colour ${g} yet`); return; }
+  const list = faces.map(f => f.i).filter(i => prefs.colors[i] === g && slotOf[i] >= 0); if (!list.length) { toast(`no face is colour ${g} yet: hold the button to paint the face in front`); return; }
   const i = list.find(x => x > cur()) ?? list[0]; openFace(i, fullFace >= 0);
 }
 function isolate(g) { faces.forEach(f => f.el.classList.toggle('dim', !!g && prefs.colors[f.i] !== g)); }
 const taps = {};
-function colorTap(g) {                                                   // one tap = colour this face · two quick taps = next face of that colour
+// 11:20 Chris: "press 1, and you cycle through group 1 and so on". Colour buttons now NAVIGATE: tap = the next face in that colour group
+// (at once, no double-tap wait). Painting is the deliberate one: HOLD the ball button (0.5 s) = paint the face in front (hold again =
+// clear). Keyboard (Ctrl+Option+7–0, where holding just auto-repeats): tap = cycle, double-tap = paint. (Hold-to-dim is retired.)
+function colorTap(g) {                                                   // keyboard: one tap = next face of the colour · two quick taps = paint
   const t = taps[g] || (taps[g] = { n: 0 }); t.n++; clearTimeout(t.timer);
-  t.timer = setTimeout(() => { const n = t.n; t.n = 0; n >= 2 ? cycleColor(g) : assignColor(g); }, 320);
+  t.timer = setTimeout(() => { const n = t.n; t.n = 0; n >= 2 ? assignColor(g) : cycleColor(g); }, 320);
 }
-function colorDown(g) { const t = taps[g] || (taps[g] = { n: 0 }); t.held = false; t.hold = setTimeout(() => { t.held = true; isolate(g); }, 500); }
-function colorUp(g) { const t = taps[g]; if (!t) return; clearTimeout(t.hold); if (t.held) { t.held = false; isolate(0); } else colorTap(g); }
+function colorDown(g) { const t = taps[g] || (taps[g] = { n: 0 }); t.held = false; t.hold = setTimeout(() => { t.held = true; assignColor(g); }, 500); }
+function colorUp(g) { const t = taps[g]; if (!t) return; clearTimeout(t.hold); if (t.held) t.held = false; else cycleColor(g); }
 
 // ---------- Priority 2: Attention Routing. The server tells us (from Claude Code's own hooks) which faces wait on a person. A waiting
 // face pulses in its own colour; a small list top-right names the others while you work. Nothing here ever types, answers, approves or
@@ -863,7 +866,7 @@ const L_TWO = { 1: 'Left', 2: 'Right' };
 const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
 const LAYOUTS = {
   c621: { model: 'Spaceball 5000', roll: 'tilt', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
-          preset: { select: 1, full: 2, home: 3, color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 } },
+          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, back: 12 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
   c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c62f: { model: 'SpaceMouse Wireless (receiver)', labels: L_TWO, preset: { full: 1, jump: 2 } }, c63a: { model: 'SpaceMouse Wireless (Bluetooth)', labels: L_TWO, preset: { full: 1, jump: 2 } },
@@ -895,7 +898,7 @@ const tgl = (id, title, hint, on, attr = '') => `<label class="toggle"><span>${t
 const rng = (attrs, label, val, shown) => fld(label, `<div class="range"><input type="range" ${attrs} value="${val}"><output>${shown ?? val}</output></div>`);
 const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
 const seg = (name, opts, cur) => `<div class="seg">${opts.map(([v, t, sub]) => `<label><input type="radio" name="${name}" value="${v}" ${cur === v ? 'checked' : ''}><span>${t}${sub ? `<small>${sub}</small>` : ''}</span></label>`).join('')}</div>`;
-const TABS = [['look', 'Look'], ['motion', 'Motion'], ['ball', 'Ball'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['keys', 'Keys']];
+const TABS = [['look', 'Look'], ['motion', 'Motion'], ['ball', 'Ball'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['help', 'Help']];
 let prefsTab = 'look';
 function showTab(t) { prefsTab = t; document.querySelectorAll('#dnav .dtab').forEach(x => x.classList.toggle('on', x.dataset.t === t)); document.querySelectorAll('#prefs .sec').forEach(x => x.classList.toggle('on', x.dataset.sec === t)); }
 
@@ -943,7 +946,7 @@ function renderPrefs() {
       `<button class="btn" id="cal-zero" ${calRest ? '' : 'disabled'}>Zero it (subtract the bias)</button><button class="btn" id="cal-clear">Clear zero + extremes</button></div>` +
       `<div id="calrep" class="card" style="display:${calRest ? 'block' : 'none'}"></div>`) +
     sec('colours',
-      `<div class="note">Tap a colour button = colour the face in front · double tap = next face of that colour · hold = show only that colour.</div>` +
+      `<div class="note">Ball: tap a colour button = go to the next face of that colour · hold it = paint the face in front (hold again = clear). Keyboard: Ctrl+Option+7–0, tap = next · double-tap = paint.</div>` +
       [1, 2, 3, 4].map(g => `<div class="palrow"><span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span>` +
         `<span style="flex:1"><b>${colourName(prefs.palette[g - 1])}</b> <span class="note">colour ${g} · Ctrl+Option+${keys[g - 1]}</span></span>` +
         `<button class="btn" data-assign="${g}">colour the face in front</button></div>`).join('') +
@@ -968,7 +971,8 @@ function renderPrefs() {
       (isWeb(cur()) ? `<button class="btn" id="p-unweb">Face ${cur() + 1} back to a terminal</button>` : '') + `</div>` +
       `<div class="note">In full screen: an address bar, ⌘⌥↩ back to the cube. Logins stay. Passkeys (Touch ID) can't work here — use password + code once.</div>`
       : `<div class="note">Browser faces need the 3D Terminal app (not a plain browser tab).</div>`) +
-    sec('keys', `<div class="keys">` + HELP.map(([t, lines]) => `<div class="card"><b>${t}</b><div>${lines.map(esc).join('<br>')}</div></div>`).join('') + `</div>`);
+    sec('help', `<div class="note">Everything below is written from your current button map and Motion settings: change a button and this changes with it.</div>` +
+      `<div class="keys">` + helpSections().map(([t, lines]) => `<div class="card"><b>${esc(t)}</b><div>${lines.map(esc).join('<br>')}</div></div>`).join('') + `</div>`);
   // tabs
   document.querySelectorAll('#dnav .dtab').forEach(t => { t.onclick = () => showTab(t.dataset.t); });
   // (every handler below is the one the old panel had, on the same ids)
@@ -1182,12 +1186,40 @@ function renderMotion() {
     r.oninput = () => { prefs[k] = +r.value; r.nextElementSibling.textContent = r.value + (k === 'offer' ? '%' : 's'); }; r.onchange = savePrefs; }
   document.getElementById('mo-reset').onclick = e => { e.preventDefault(); if (prefs.motion) delete prefs.motion[SH.name]; savePrefs(); renderMotion(); };
 }
-// the cheat sheet (the Keys tab). 09:58: rewritten for how it drives NOW (the old text still described twist/tilt rolling).
-const HELP = [
-  ['SPACEBALL', ['twist = spin the solid in place', 'push any way = roll toward that side', 'push down = select · again = full screen', 'pull up = back to the cube', 'jump / back / colours / home: see Buttons']],
-  ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts)', 'right-drag or Option-drag = twist', 'Option + scroll = twist', 'click a face = go there · double-click = zoom in', 'right-click in full screen = back out', 'two-finger swipe = spin · rotate = twist', 'pinch out = in · pinch in = out']],
-  ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
-  ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to a face · [ ] = quarter twist', '7 8 9 0 = colours 1–4', 'J = jump to a waiting face · B = back', '⌘⌥↩ = back to the cube from a browser face']]];
+// ---------- HELP (Chris 11:24: "a full detail help system that dynamically updates based on button mapping"). Built fresh every time
+// the dialog opens, from the LIVE map: every ball line names the button by the device's own printed label (btnLabel), the motion lines
+// follow his Motion settings, and free buttons are listed as free. Change a mapping and the help changes with it.
+function helpSections() {
+  const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, k = n => `[${btnLabel(n)}]`;
+  const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: 'home: back to face 1, square',
+    jump: 'jump to the oldest face waiting for you, zoomed in', back: 'back to exactly where you were',
+    color1: 'colour group 1: tap = next face · hold = paint the face in front', color2: 'colour group 2: tap = next face · hold = paint',
+    color3: 'colour group 3: tap = next face · hold = paint', color4: 'colour group 4: tap = next face · hold = paint' };
+  const count = L ? Math.max(...Object.keys(L.labels).map(Number), 0) : Math.max(...Object.values(B).filter(Boolean), tog, 6);
+  const byBtn = {}; Object.entries(B).forEach(([a, n]) => { if (n) (byBtn[n] = byBtn[n] || []).push(ACT[a]); }); (byBtn[tog] = byBtn[tog] || []).push('hand the ball back to your Mac (press again to take it back)');
+  const ballMap = [...Array(count)].map((_, i) => i + 1).filter(n => !L || L.labels[n]).map(n => `${k(n)}  ${byBtn[n] ? byBtn[n].join(' + ') : '— free'}`);
+  const hand = navMode() === 'hand', tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt';
+  const isWebFace = isWeb(cur());
+  return [
+    [`YOUR ${(L ? L.model : DEVICE ? DEVICE.name : 'BALL').toUpperCase()} — BUTTON BY BUTTON`, DEVICE ? ballMap : ['No 3D mouse found yet. Plug one in; its own map loads.', ...ballMap]],
+    ['MOVING THE SOLID WITH THE BALL', hand ? [`${tilt ? 'tilt' : 'slide'} the ball any way = roll toward that side (diagonals too)`, `${tilt ? 'slides are ignored (Motion → Roll with)' : 'tilts are ignored (Motion → Roll with)'}`,
+        'twist = spin the solid in place; it clicks into quarter turns', 'push down = select the face · push again = full screen', 'pull up = back out to the solid',
+        'let go = it settles on the nearest screen (feel: Motion tab)'] : ['classic control (cube): one push = one face', 'twist = side to side · tilt = over the top', 'push down = select · again = full screen · pull up = out']],
+    ['COLOUR GROUPS', [`${k(B.color1)} ${k(B.color2)} ${k(B.color3)} ${k(B.color4)} on the ball = groups 1–4`, 'tap = go to the next face in that group', 'hold = paint the face in front (hold again = clear)',
+        'keyboard: Ctrl+Option+7 8 9 0 · tap = next · double-tap = paint', 'colours + names: Colours tab · "group by colour" puts them side by side']],
+    ['WHEN A SESSION NEEDS YOU', ['the face breathes a glow in its own colour and shows ◆!', 'a list top-right names it; click an entry to go there', `${k(B.jump)} = jump in · ${k(B.back)} = back · keys Ctrl+Option+J / B`,
+        'it clears only when the session moves on, never just by looking', 'the longer it waits, the whiter the glow (Attention tab)']],
+    ['THE SOLID', ['rest on a face and it rises out of the solid after a moment (the offering)', 'roll away and it sinks back as the next comes around',
+        'shapes: cube (full-size screens), cuboctahedron, rhombicuboctahedron (18, an overview)', 'parked sessions keep running; Look tab puts them back']],
+    ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
+        'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
+    ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
+    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · B = back', 'Esc = close settings']],
+    ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
+        `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
+    ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',
+        'Colours · Attention · Buttons (map any button) · Browser', 'this Help rewrites itself whenever you change a button']]];
+}
 function toggleSettings(open) {
   const want = open ?? !help.classList.contains('on'); help.classList.toggle('on', want); if (want) renderPrefs();
   if (fullFace >= 0 && isWeb(fullFace)) { if (want) NATIVE && NATIVE.postMessage({ op: 'hide', face: fullFace }); else showWeb(fullFace); }   // (08:49: never under a browser face)
