@@ -184,7 +184,7 @@ def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
 PAGE_BUTTONS = {"select", "full", "home", "jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
-PREF_KEYS = {"sbBias", "buttonsByDevice", "buttonsDevice", "material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright", "homeFace"}
+PREF_KEYS = {"sbBias", "buttonsByDevice", "buttonsDevice", "material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright", "homeFace", "drumAll"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.

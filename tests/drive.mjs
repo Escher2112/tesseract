@@ -77,6 +77,9 @@ const S = {
     a = await page(`if (fullFace >= 0) { await __ball([0, 0, 320], [0, 0, 0], 300); await __w(1200); } await __btn(5, 650);
       await __ball([0, 0, -140], [-300, 0, 0], 400); await __w(300); return __at();`);
     check(a.drum, 'a hard tilt (300) leaking a push (140) does not go', a);
+    a = await page(`await __ball([0, 0, 320], [0, 0, 0], 300); await __w(400); prefs.drumAll = false; [6, 11].forEach(i => Object.assign(att[i], { s: 'needs', r: 'needs approval', since: Date.now() - 60000 * (i === 6 ? 9 : 2) })); renderAttn();
+      await __btn(5, 650); const r = { n: drum.items.length, first: drum.items[drumIdx(drum)].i + 1, title: document.querySelector('.dttl').textContent }; prefs.drumAll = true; showDrum(false); return r;`);
+    check(a.n === 2 && a.first === 7 && /2 WAITING/.test(a.title), 'toggle off: the drum holds only the waiting sessions, oldest first', a);
     await page(`await __ball([0, 0, 320], [0, 0, 0], 300); await __w(500);`);
   },
   async slow() {

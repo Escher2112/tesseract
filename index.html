@@ -1089,7 +1089,9 @@ function drumItems() {
   // 14:25 Chris: "it's always staying on 15 Tezra… we should be able to roll the opposite way from 1 through 16, 15". It held only the
   // WAITING sessions (one, then). Now: every session, in face order, wrapping both ways; it opens on the oldest waiting one (else where
   // you are); waiting rows carry ◆! with the reason and how long.
-  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since), list = visible();
+  // 16:50 Chris (14:35): "a toggle in the settings: active waiting selector — show all or just waiting sessions… essentially we created a
+  // second version of the cube". prefs.drumAll (default on = every session). Off = just the waiting ones (all of them if none wait).
+  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since), list = prefs.drumAll === false && w.length ? w : visible();
   const rows = list.map(i => ({ i, title: faces[i].title || (isWeb(i) ? faces[i].webTitle || 'browser' : 'shell'),
     why: waiting(i) ? '◆! ' + att[i].r : (i === cur() ? 'you are here' : ''), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] }));
   const start = Math.max(0, list.indexOf(w.length ? w[0] : cur()));
@@ -1102,7 +1104,7 @@ function showDrum(on) {
   // obsidian reel with chrome end caps (GL.drumOpen / drumRender); the CSS drum below stays only as the fallback when WebGL is off.
   drum.gl = !!(window.GL && window.GL.drumOpen && prefs.gl !== false);
   if (drum.gl) { drum.items = rows; drum.n = rows.length; drum.p = start; drum.v = 0; drum.wrap = true;
-    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `${anyW} WAITING · ${rows.length} SESSIONS` : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div>` +
+    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? (prefs.drumAll === false ? `${anyW} WAITING` : `${anyW} WAITING · ${rows.length} SESSIONS`) : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div>` +
       `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div><div class="dball" id="dball"></div><div class="dstage dstage3d"></div>`;
     try { window.GL.drumOpen(drumEl.querySelector('.dstage3d'), rows.map(it => ({ no: it.i + 1, title: it.title, age: it.age, color: it.g ? prefs.palette[it.g - 1] : null,
       sub: [it.why, it.g ? colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : ''].filter(Boolean).join(' · ') })), start);
@@ -1227,6 +1229,7 @@ function renderPrefs() {
       `<div class="note">When a Claude session on another face needs you, that face breathes a glow in its own colour and shows ◆!. Jump: Ctrl+Option+J or your jump button · history back / forward: Ctrl+Option+B / F.</div>` +
       tgl('p-fin', 'Also when a session finishes its turn', 'Not just approvals and questions.', prefs.attnFinished !== false) +
       tgl('p-quiet', 'Quiet', 'No list in the corner; faces still glow.', prefs.quiet) +
+      tgl('p-drumall', 'The drum shows every session', `Hold ${esc(btnLabel(prefs.buttons.jump))}: on = all your sessions, waiting ones marked ◆! (a second way round the cube) · off = only the ones waiting for you.`, prefs.drumAll !== false) +
       `<div class="two">` + fld('Fade toward white over (minutes)', `<input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin ?? 15}">`, '0 = never fade.') +
         rng('id="p-bgdim" min="0" max="0.9" step="0.1"', 'The space steps back by', prefs.bgDim ?? 0.6, Math.round((prefs.bgDim ?? 0.6) * 100) + '%') + `</div>` +
       `<div class="grp">Sounds</div>` +
@@ -1271,7 +1274,7 @@ function renderPrefs() {
   { const r = document.getElementById('p-glow'); r.oninput = e => { prefs.glow = +e.target.value; r.nextElementSibling.textContent = r.value; document.documentElement.style.setProperty('--glow', prefs.glow); }; r.onchange = savePrefs; }
   on('p-lowfx', t => { prefs.lowfx = t.checked; }); document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
     toastUndo(prefs.cluster ? 'faces grouped by colour' : 'faces back in their own places', () => { prefs.cluster = was; savePrefs(); applyPrefs(); }); };
-  on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; });
+  on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; }); on('p-drumall', t => { prefs.drumAll = t.checked; });
   on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
   { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
   document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
