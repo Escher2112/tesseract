@@ -56,7 +56,7 @@ const QUALITY = { high: { dpr: 2, msaa: 4, bloom: true }, balanced: { dpr: 1.5, 
 
 let renderer, scene, camera, composer, rt, bloom, body, mesh, envRT, keyL, fillL, rimL, amb, polys = null;
 let builtFor = null, matKey = null, lightKey = null, qualKey = null, themeKey = null, moteN = -1, motes = null, sparkle = null, backdrop = null, rain = null;
-let last = 0, lastQ = '', dirty = true;
+let last = 0, lastQ = '', dirty = true, offerMesh = null, offerKey = '';
 const prefs = () => window.cubePrefs || {};                            // the page hands these over every frame (its let-variables aren't window properties)
 const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 
@@ -210,6 +210,7 @@ function buildBody() {
     let lo = [1e9, 1e9], hi = [-1e9, -1e9]; P.pts.forEach(p => { const d = p.clone().sub(p0), u = d.dot(e), v = d.dot(m); lo = [Math.min(lo[0], u), Math.min(lo[1], v)]; hi = [Math.max(hi[0], u), Math.max(hi[1], v)]; });
     P.x = e; P.y = m; P.span = Math.max(hi[0] - lo[0], hi[1] - lo[1]) * 1.04; P.O = p0.clone().addScaledVector(e, lo[0] - P.span * 0.02).addScaledVector(m, lo[1] - P.span * 0.02);
     const n = fi < faces.length ? 248 : 56; if (cx + n + 8 > A) { cx = 0; cy += rowH + 8; rowH = 0; } P.cell = { x: cx + 4, y: cy + 4, n }; cx += n + 8; rowH = Math.max(rowH, n);
+    P.uvs = P.pts.map(p => { const d = p.clone().sub(P.O); return [(P.cell.x + d.dot(P.x) / P.span * P.cell.n) / A, (P.cell.y + d.dot(P.y) / P.span * P.cell.n) / A]; });
   });
   if (cy + rowH > A) console.warn('[gl] atlas overflow: some cells fall outside 2048²');
   const pos = [], nor = [], uv = [];
@@ -222,8 +223,29 @@ function buildBody() {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   builtFor = S; if (mesh) { body.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
+  if (offerMesh) { body.remove(offerMesh); offerMesh.geometry.dispose(); offerMesh = null; offerKey = ''; }
   matKey = prefs().material || 'brushed_steel'; mesh = new THREE.Mesh(g, makeMaterial(matKey)); body.add(mesh);
   console.log(`[gl] body ${S.name}: ${faces.length} faces, ${edges.size} rounded edges, ${corners.size} corners, bevel ${ch.toFixed(1)}px, ${pos.length / 9} triangles`);
+}
+
+// ---------- THE OFFERING (09:11): the resting face rises out of the solid (index.html times it on a cam curve and hands over cubeLift).
+// The face's plate is extruded along its normal: a top at the lifted height (same atlas cell, so the same pattern) and four side walls
+// whose texture is the plate's edge drawn out along the rise, as if the block were cut from the same stone or steel.
+function updateOffer() {
+  const L = window.cubeLift || {}, key = `${L.slot}|${(L.h || 0).toFixed(1)}|${builtFor && builtFor.name}`;
+  if (offerMesh) offerMesh.material = mesh.material;
+  if (key === offerKey) return false; offerKey = key;
+  if (!polys || !(L.h > 0.05) || !(L.slot >= 0) || !polys[L.slot]) { if (offerMesh) offerMesh.visible = false; return true; }
+  const P = polys[L.slot], n = P.want, base = P.pts, top = base.map(p => p.clone().addScaledVector(n, L.h)), pos = [], nor = [], uv = [];
+  const C = base.reduce((s, p) => s.add(p.clone()), new THREE.Vector3()).multiplyScalar(1 / base.length);
+  const quad = (q, nn, us) => { let pts = q, uvs = us; if (q[1].clone().sub(q[0]).cross(q[2].clone().sub(q[0])).dot(nn) < 0) { pts = [...q].reverse(); uvs = [...us].reverse(); }
+    for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(pts[k].x, pts[k].y, pts[k].z); nor.push(nn.x, nn.y, nn.z); uv.push(...uvs[k]); } };
+  quad(top, n, P.uvs);
+  for (let i = 0; i < base.length; i++) { const j = (i + 1) % base.length, out = base[i].clone().add(base[j]).multiplyScalar(0.5).sub(C).normalize();
+    quad([base[i], base[j], top[j], top[i]], out, [P.uvs[i], P.uvs[j], P.uvs[j], P.uvs[i]]); }
+  if (!offerMesh) { offerMesh = new THREE.Mesh(new THREE.BufferGeometry(), mesh.material); body.add(offerMesh); }
+  const g = offerMesh.geometry; g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.computeBoundingSphere(); offerMesh.visible = true; return true;
 }
 
 function size() {
@@ -262,6 +284,7 @@ function loop(now) {
   requestAnimationFrame(loop);
   if (prefs().gl === false || document.hidden || !window.cubeSH) return;
   if (builtFor !== window.cubeSH) { buildBody(); dirty = true; }
+  if (mesh && updateOffer()) dirty = true;
   const q = window.cubeShown || [1, 0, 0, 0], qs = q.map(v => v.toFixed(5)).join(), moving = qs !== lastQ;
   if (!moving && !dirty && now - last < (rain ? 50 : 33)) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
   const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now; lastQ = qs; dirty = false;
