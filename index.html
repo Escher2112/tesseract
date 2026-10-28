@@ -593,10 +593,19 @@ function tint() {                                                        // the 
 }
 setInterval(tint, 2000);
 const backStack = [];
-function openFace(i, wantFull) { if (fullFace >= 0 && fullFace !== i) toggleFull(); goTo(i); select(i); if (wantFull && fullFace < 0) toggleFull(); renderAttn(); }
-function jumpTo(i) {                                                     // go to a waiting face, remembering exactly where you were
+// 09:46 Chris: with only the Spaceball it took "button 6, navigate and press, button 6 back, pull face to focus, deal with it, push out,
+// button 6 again, repeat". Now ONE press of jump rolls to the oldest waiting face AND zooms in; ONE press of back returns exactly where
+// he was. openFace sequences the zooms: leaving one full-screen face finishes its zoom-out before rolling and zooming into the next
+// (before, the second zoom fired mid-animation and was silently ignored).
+function openFace(i, wantFull) {
+  const go = () => { if (wantFull) enterFace(i); else { goTo(i); select(i); } renderAttn(); };
+  if (fullFace === i) { if (!wantFull) toggleFull(); return; }
+  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
+  else go();
+}
+function jumpTo(i) {                                                     // go to a waiting face and straight in, remembering exactly where you were
   const here = fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace()); if (here === i) return;
-  backStack.push({ i: here, full: fullFace >= 0 }); if (backStack.length > 12) backStack.shift(); openFace(i, fullFace >= 0);
+  backStack.push({ i: here, full: fullFace >= 0 }); if (backStack.length > 12) backStack.shift(); openFace(i, true);
 }
 function jumpNext() {                                                    // oldest waiting first; nothing waiting = go back
   const here = fullFace >= 0 ? fullFace : selFace;
@@ -798,8 +807,9 @@ function renderPrefs() {
     `<br><label><input type="checkbox" id="p-fin" ${prefs.attnFinished ? 'checked' : ''}> also when a session finishes its turn</label>` +
     `<br><label><input type="checkbox" id="p-quiet" ${prefs.quiet ? 'checked' : ''}> quiet: no list top-right (faces still pulse)</label>` +
     `<br>fade the pulse toward white over <input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin}"> min (0 = never)` +
-    `<br>jump to the oldest waiting: ball button <b>${B.jump}</b> ${learn('jump')} · Ctrl+Option+J` +
-    `<br>back to where you were: ball button <b>${B.back}</b> ${learn('back')} · Ctrl+Option+B`;
+    `<br>jump to the oldest waiting (and zoom in): ball button <b>${B.jump}</b> ${learn('jump')} · Ctrl+Option+J` +
+    `<br>back to where you were: ball button <b>${B.back}</b> ${learn('back')} · Ctrl+Option+B` +
+    `<br><i>(click "change", then press the ball button you want: any button but your hand-back one)</i>`;
   el.querySelectorAll('[data-pal]').forEach(c => { c.onclick = e => { e.stopPropagation(); openPalette(+c.dataset.pal, c); }; });
   el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
   const pw = document.getElementById('p-web'); if (pw) pw.onclick = () => makeWeb(cur(), toUrl(document.getElementById('p-url').value));
