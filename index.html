@@ -781,7 +781,7 @@ function noteVisit(i) {
 }
 function histGo(d) {
   let n = hpos + d; while (n >= 0 && n < hist.length && hist[n].i === cur() && !hist[n].full) n += d;   // skip where you already are
-  if (n < 0 || n >= hist.length) { toast(d < 0 ? 'nothing to go back to yet' : 'nothing further forward'); return; }
+  if (n < 0 || n >= hist.length) { toast(`${d < 0 ? 'nothing to go back to yet' : 'nothing further forward'}  ·  history: ${hist.length ? hist.map((e, k) => (k === hpos ? '[' + (e.i + 1) + ']' : e.i + 1)).join(' ') : 'empty (it fills as you land on faces)'}`); return; }
   hpos = n; const c = hist[n]; if (c.i !== frontFace()) histNav = performance.now() + 3000;
   openFace(c.i, c.full); toast(`${d < 0 ? 'back' : 'forward'} to face ${c.i + 1}  ·  ${n + 1} of ${hist.length}`);
 }
