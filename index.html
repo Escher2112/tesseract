@@ -351,6 +351,7 @@ addEventListener('keydown', e => {
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
   else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack();
+  else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
 }, true);
@@ -664,6 +665,12 @@ function offer(now) {
 // out = zoom into the face in front, pinch in = back out. (Text selection on the solid gave way to the drag; full screen keeps it.)
 const DRAGK = 0.35;                                                      // degrees per pixel of drag
 const scene = document.getElementById('scene'); let drag = null, wheelT = 0, pinchSum = 0, pinchT = 0;
+// 09:18 Chris: "the faces that are upside down — how can the user re-orient them, since they don't have 3D spin in mouse mode?" →
+// Option-drag turns the solid around its centre like a dial (the angle your pointer sweeps around the middle of the window), the
+// trackpad's two-finger rotate does the same, and Ctrl+Option+[ / ] turns it a quarter. Letting go clicks it into the nearest quarter.
+function twistBy(deg) { Q = qNorm(qMul(qAxis(0, 0, 1, deg), Q)); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false; }
+const aroundMiddle = e => Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2) * 180 / Math.PI;
+function twistQuarter(sign) { if (fullFace >= 0) return; Qt = qNorm(qMul(qAxis(0, 0, 1, 90 * sign), Qt)); cmdTarget = true; settled = false; present(Qt); }
 function rotateBy(dx, dy) {                                              // turn the solid by a screen-space drag
   Q = qNorm(qMul(qAxis(1, 0, 0, -dy * DRAGK), qMul(qAxis(0, 1, 0, dx * DRAGK), Q))); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false;
 }
@@ -673,18 +680,22 @@ function release(vx, vy) {                                               // let 
 }
 scene.addEventListener('mousedown', e => {
   if (fullFace >= 0 || e.button !== 0) return; const fe = e.target.closest('.face');
-  drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false, face: fe ? faces.findIndex(f => f.el === fe) : -1, vx: 0, vy: 0 };
+  drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false, face: fe ? faces.findIndex(f => f.el === fe) : -1, vx: 0, vy: 0,
+           twist: e.altKey, ang: aroundMiddle(e) };
   e.preventDefault(); e.stopPropagation();                               // the terminal underneath doesn't start a text selection
 }, true);
 addEventListener('mousemove', e => {
   if (!drag) return; const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
-  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return; drag.moved = true; rotateBy(dx, dy);
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return; drag.moved = true;
+  if (drag.twist) { const a = aroundMiddle(e); let d = a - drag.ang; if (d > 180) d -= 360; if (d < -180) d += 360; drag.ang = a; twistBy(d); drag.lx = e.clientX; drag.ly = e.clientY; return; }
+  rotateBy(dx, dy);
   const now = performance.now(), dt = Math.max(1, now - drag.t); drag.vx = 0.6 * drag.vx + 0.4 * dx / dt; drag.vy = 0.6 * drag.vy + 0.4 * dy / dt;
   drag.t = now; drag.lx = e.clientX; drag.ly = e.clientY;
 });
 addEventListener('mouseup', () => {
   if (!drag) return; const d = drag; drag = null;
   if (!d.moved) { if (d.face >= 0) { select(d.face); goTo(d.face); } return; }
+  if (d.twist) { release(0, 0); return; }                              // a twist settles into the nearest quarter turn
   release(performance.now() - d.t > 80 ? 0 : d.vx, performance.now() - d.t > 80 ? 0 : d.vy);   // a drag that stopped before letting go doesn't fling
 });
 function enterFace(i) {                                                  // bring face i to the front, then zoom in when it's there
@@ -703,8 +714,12 @@ scene.addEventListener('wheel', e => {
   rotateBy(-e.deltaX * 0.6, -e.deltaY * 0.6); clearTimeout(wheelT); wheelT = setTimeout(() => release(0, 0), 140);
 }, { passive: false });
 full.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); pinch(e.deltaY); } }, { passive: false });
-addEventListener('gesturestart', e => e.preventDefault());              // Safari's own pinch events (the app's WebKit sends these too)
-addEventListener('gesturechange', e => { e.preventDefault(); if (e.scale > 1.25 && fullFace < 0) enterFace(frontFace()); else if (e.scale < 0.8 && fullFace >= 0 && !zooming) toggleFull(); });
+let gRot = 0, gTwisting = false;                                        // Safari's own gesture events (the app's WebKit sends these): pinch + rotate
+addEventListener('gesturestart', e => { e.preventDefault(); gRot = 0; gTwisting = false; });
+addEventListener('gesturechange', e => { e.preventDefault();
+  if (fullFace < 0 && (gTwisting || Math.abs(e.rotation) > 8)) { gTwisting = true; twistBy(e.rotation - gRot); gRot = e.rotation; return; }   // two-finger rotate = twist
+  if (e.scale > 1.25 && fullFace < 0) enterFace(frontFace()); else if (e.scale < 0.8 && fullFace >= 0 && !zooming) toggleFull(); });
+addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwisting = false; release(0, 0); } });
 
 // ---------- the ⚙ panel's settings for both
 function renderPrefs() {
@@ -817,7 +832,7 @@ function physics(dt, spinV, tiltV, pushing) {
     Q = qNorm(qMul(rotVecQ(V.mul(W, h)), Q)); }
   if (!held && Math.hypot(...e) < 0.004 && Math.hypot(...W) < 0.03) {   // locked onto a screen
     Q = Qt; W = [0, 0, 0]; cmdTarget = false;
-    if (!settled) { settled = true; const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } }
+    if (!settled) { settled = true; present(Q); const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } }   // (09:18: re-upright on EVERY settle; a 180° drag back onto the same face left it upside down)
   } else if (!held) settled = false;
 }
 let actx = null;
@@ -870,7 +885,9 @@ turn = roll · tap = side-to-side ⇄ top-to-bottom
 double tap = select · long press = full screen on/off
 
 MOUSE / TRACKPAD
-drag = spin it (fling = coast) · click a face = go there
+drag = spin it (fling = coast) · Option-drag = twist it like a dial
+two-finger rotate = twist · Ctrl+Option+[ ] = quarter twist
+click a face = go there
 double-click = zoom in · right-click (full screen) = back out
 two-finger swipe = spin · pinch out = in · pinch in = out
 
