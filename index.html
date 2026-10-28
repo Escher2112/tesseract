@@ -57,10 +57,60 @@
   /* 23:03 Chris: the help line overlapped Claude Code's bottom bar in full screen. Now it's a ⚙ in the top-right corner that opens a panel. */
   #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
   #gear:hover { opacity: 1; }
-  #help { position: fixed; top: 32px; right: 10px; z-index: 7; display: none; max-width: 420px; max-height: calc(100vh - 44px); overflow-y: auto; padding: 12px 14px; line-height: 1.6;
-          background: rgba(20, 16, 40, .96); border: 1px solid var(--edge); border-radius: 8px; color: #d8d0ff; }
-  #help.on { display: block; }
-  #helptext { white-space: pre-line; }  #setting { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); }
+  /* 2026-10-28 09:58 Chris: "settings is ugly… look at my other apps — some have excellent settings layouts… make it super clean".
+     Alcove's settings language (app/index.html: .overlay/.dialog/.dnav/.field/.toggle/.sw/.range): a centred dialog over a blurred
+     backdrop, one fixed height for every tab, pill tabs, a small muted label over each control, switch rows with a one-line hint,
+     sliders with a value readout. Every control keeps its old id and handler: only the layout changed. */
+  :root { --acc: #b49cff; --acc-soft: rgb(180 156 255 / .14); --line: rgb(180 156 255 / .22); --muted: #9a92c2; --ink: #e9e4ff; }
+  #help.overlay { position: fixed; inset: 0; z-index: 7; background: rgb(4 3 10 / .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+                  display: none; align-items: center; justify-content: center; padding: 20px; }
+  #help.on { display: flex; }
+  .dialog { width: min(780px, 100%); height: min(720px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 22px;
+            background: rgb(16 13 30 / .97); border: 1px solid var(--line); box-shadow: 0 30px 80px rgb(0 0 0 / .6); color: var(--ink);
+            font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  .dhead { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .dhead h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .01em; } .dsub { flex: 1; color: var(--muted); font-size: 12px; }
+  .dx { border: 1px solid var(--line); background: transparent; color: var(--ink); width: 30px; height: 30px; border-radius: 10px; font-size: 18px; cursor: pointer; }
+  .dx:hover { border-color: var(--acc); color: var(--acc); }
+  .dnav { display: flex; gap: 6px; padding: 12px 20px 2px; flex-wrap: wrap; }
+  .dtab { padding: 6px 13px; border-radius: 11px; cursor: pointer; color: var(--muted); border: 1px solid transparent; font-size: 13px; user-select: none; }
+  .dtab:hover { color: var(--ink); } .dtab.on { color: var(--acc); border-color: var(--acc); background: var(--acc-soft); }
+  .dbody { flex: 1; min-height: 0; overflow: auto; padding: 8px 20px 22px; }
+  .sec { display: none; } .sec.on { display: block; }
+  .grp { margin: 18px 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .note { color: var(--muted); font-size: 12px; margin: 6px 0; line-height: 1.5; }
+  .field { margin: 12px 0; } .field > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; letter-spacing: .02em; }
+  .dialog select, .dialog input[type=text], .dialog input[type=number], .dialog input:not([type]) { width: 100%; box-sizing: border-box; border: 1px solid var(--line);
+            background: rgb(0 0 0 / .35); color: var(--ink); border-radius: 11px; padding: 8px 11px; font: inherit; outline: none; }
+  .dialog select:focus, .dialog input:focus { border-color: var(--acc); }  .dialog select option { background: #0e0c1c; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .range { display: flex; align-items: center; gap: 10px; } .range input { flex: 1; accent-color: var(--acc); }
+  .range output { min-width: 46px; text-align: right; color: var(--acc); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px;
+            margin: 8px 0; background: rgb(0 0 0 / .2); cursor: pointer; }
+  .toggle small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .sw { position: relative; width: 42px; height: 24px; flex: none; } .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .sw i { position: absolute; inset: 0; border-radius: 999px; background: rgb(255 255 255 / .12); transition: .2s; }
+  .sw i::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: #cfc8ee; transition: .2s; }
+  .sw input:checked + i { background: var(--acc); } .sw input:checked + i::before { transform: translateX(18px); background: #140f26; }
+  .seg { display: flex; gap: 8px; flex-wrap: wrap; } .seg label { flex: 1; min-width: 140px; cursor: pointer; }
+  .seg input { position: absolute; opacity: 0; }
+  .seg span { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgb(0 0 0 / .2); line-height: 1.35; }
+  .seg span small { display: block; color: var(--muted); font-size: 11.5px; }
+  .seg input:checked + span { border-color: var(--acc); background: var(--acc-soft); color: var(--ink); }
+  .btn { border: 1px solid var(--line); background: rgb(0 0 0 / .25); color: var(--ink); border-radius: 10px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  .btn:hover { border-color: var(--acc); color: var(--acc); } .btn.acc { border-color: var(--acc); color: var(--acc); background: var(--acc-soft); }
+  .linkbtn { color: var(--acc); cursor: pointer; text-decoration: none; } .linkbtn:hover { text-decoration: underline; }
+  .card { border: 1px solid var(--line); border-radius: 13px; padding: 10px 13px; margin: 8px 0; background: rgb(0 0 0 / .2); }
+  .brow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgb(180 156 255 / .08); }
+  .kcap { display: inline-block; min-width: 26px; text-align: center; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: rgb(255 255 255 / .06);
+          font: 600 12px Menlo, monospace; } .warn { color: #ffb86b; font-size: 11.5px; }
+  .palrow { display: flex; align-items: center; gap: 12px; padding: 7px 0; }  .palrow .chip { width: 34px; height: 22px; border-radius: 7px; }
+  .readout { font: 11.5px Menlo, monospace; color: var(--acc); white-space: pre-wrap; }
+  .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .keys .card b { display: block; margin-bottom: 6px; letter-spacing: .06em; font-size: 11.5px; color: var(--muted); }
+  .keys .card div { line-height: 1.7; }
+  .dbody { scrollbar-width: thin; scrollbar-color: rgb(180 156 255 / .35) transparent; }
+  .dbody::-webkit-scrollbar { width: 8px; } .dbody::-webkit-scrollbar-thumb { background: rgb(180 156 255 / .3); border-radius: 8px; } .dbody::-webkit-scrollbar-track { background: transparent; }
   /* 2026-10-28 Priority 1 (colors) + 2 (attention), Chris + Riven's spec. A face's group colour is an etched, glowing double line
      around its edge (never a fill: the terminal stays black and readable). A face waiting on a person pulses in ITS OWN colour
      (--pc, which can fade toward white the longer it waits); uncoloured faces pulse lavender. */
@@ -78,7 +128,7 @@
   #attnq { position: fixed; top: 6px; right: 40px; z-index: 8; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
   .aq .x { margin-left: 10px; opacity: .55; }  .aq .x:hover { opacity: 1; }
-  #prefs { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); line-height: 2; }
+
   .chip { display: inline-block; width: 26px; height: 16px; border-radius: 4px; vertical-align: middle; cursor: pointer; border: 1px solid rgb(255 255 255 / .5); }
   #palpop { position: fixed; z-index: 9; width: 272px; padding: 10px; background: rgba(20, 16, 40, .98); border: 1px solid var(--edge); border-radius: 8px;
             display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; box-shadow: 0 8px 30px rgb(0 0 0 / .6); }
@@ -91,13 +141,17 @@
   .face.web .websnap { display: block; }  .webhid { visibility: hidden; }
   #fullhdr .wbar { display: flex; gap: 6px; align-items: center; } #fullhdr .wbar button { font: inherit; padding: 0 8px; }
   #fullhdr .wbar input { flex: 1; font: 13px Menlo, monospace; padding: 3px 6px; background: #0d0b18; color: #e8e2ff; border: 1px solid var(--edge); border-radius: 4px; }
-  #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 7; padding: 4px 12px; border-radius: 6px;
+  #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 4px 12px; border-radius: 6px;
            background: rgba(20, 16, 40, .9); color: #d8d0ff; display: none; }
 </style></head>
 <body>
 <canvas id="bg"></canvas><div id="scene"><div id="cube"></div></div>
 <div id="full"><div class="hdr" id="fullhdr"></div></div>
-<div id="gear" title="How to drive it">⚙</div><div id="help"><div id="helptext"></div><div id="setting">hand-back button: <b id="tog">6</b> &nbsp;<a href="#" id="learn" style="color:#c9b8ff">change</a></div><div id="prefs"></div><div id="motion" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--edge);line-height:2"></div></div><div id="toast"></div><div id="attnq"></div>
+<div id="gear" title="Settings">⚙</div><span id="tog" hidden>6</span>
+<div id="help" class="overlay"><div class="dialog" role="dialog" aria-label="3D Terminal settings">
+  <div class="dhead"><h2>3D Terminal</h2><span class="dsub" id="dsub"></span><button class="dx" id="dclose" title="Close (Esc)">×</button></div>
+  <div class="dnav" id="dnav"></div><div class="dbody"><div id="prefs"></div></div>
+</div></div><div id="toast"></div><div id="attnq"></div>
 <script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script>
 <script>
 'use strict';
@@ -823,47 +877,83 @@ function adoptDevice(d) {                                                // a 3D
     prefs.buttons = Object.assign({}, all[pid] || Object.assign(none, (LAYOUTS[pid] || {}).preset || DEF.buttons)); toast(`${(LAYOUTS[pid] || {}).model || d.name}: its own button map`); }
   all[pid] = prefs.buttons; prefs.buttonsByDevice = all; savePrefs(); renderPrefs();
 }
+// ---------- small parts for the settings dialog (Alcove's language): a labelled field, a switch row, a slider with a readout, pill choices
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const fld = (label, control, note) => `<div class="field"><label>${label}</label>${control}${note ? `<div class="note">${note}</div>` : ''}</div>`;
+const tgl = (id, title, hint, on, attr = '') => `<label class="toggle"><span>${title}${hint ? `<small>${hint}</small>` : ''}</span><span class="sw"><input type="checkbox" ${id ? `id="${id}"` : ''} ${attr} ${on ? 'checked' : ''}><i></i></span></label>`;
+const rng = (attrs, label, val, shown) => fld(label, `<div class="range"><input type="range" ${attrs} value="${val}"><output>${shown ?? val}</output></div>`);
+const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+const seg = (name, opts, cur) => `<div class="seg">${opts.map(([v, t, sub]) => `<label><input type="radio" name="${name}" value="${v}" ${cur === v ? 'checked' : ''}><span>${t}${sub ? `<small>${sub}</small>` : ''}</span></label>`).join('')}</div>`;
+const TABS = [['look', 'Look'], ['motion', 'Motion'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['keys', 'Keys']];
+let prefsTab = 'look';
+function showTab(t) { prefsTab = t; document.querySelectorAll('#dnav .dtab').forEach(x => x.classList.toggle('on', x.dataset.t === t)); document.querySelectorAll('#prefs .sec').forEach(x => x.classList.toggle('on', x.dataset.sec === t)); }
+
 function buttonsTable() {
   const B = prefs.buttons, tog = +document.getElementById('tog').textContent || 6, used = {};
-  Object.values(B).concat([tog]).forEach(n => { used[n] = (used[n] || 0) + 1; });
+  Object.values(B).concat([tog]).forEach(n => { if (n) used[n] = (used[n] || 0) + 1; });
   const L = devLayout();
-  return `<b>BALL BUTTONS</b>${DEVICE ? ` (your device: ${L ? L.model : DEVICE.name} · ${DEVICE.vid}:${DEVICE.pid})` : ''}` +
-    (L && L.preset ? ` <a href="#" id="p-preset">use this model's suggested map</a>` : '') + `<br>` +
-    BUTTON_ACTIONS.map(([k, t]) => `${t}: <b>${btnLabel(B[k])}</b>${used[B[k]] > 1 ? ' ⚠ shared' : ''} <a href="#" data-learn="${k}">change</a>`).join('<br>') +
-    `<br>hand back to your Mac: <b>${btnLabel(tog)}</b>${used[tog] > 1 ? ' ⚠ shared' : ''} (change it at the top)` +
-    `<br><i>change = click it, then press the ball button you want</i><br>`;
+  return `<div class="card">${DEVICE ? `<b>${esc(L ? L.model : DEVICE.name)}</b> <span class="note">· ${DEVICE.vid}:${DEVICE.pid}</span>` : '<span class="note">No 3D mouse found yet — plug one in and reopen settings.</span>'}` +
+      (L && L.preset ? `<div style="margin-top:6px"><a class="linkbtn" href="#" id="p-preset">Use this model's suggested map</a></div>` : '') + `</div>` +
+    BUTTON_ACTIONS.map(([k, t]) => `<div class="brow"><span>${t}${used[B[k]] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(B[k])}</span><a class="linkbtn" href="#" data-learn="${k}">change</a></div>`).join('') +
+    `<div class="brow"><span>hand the ball back to your Mac${used[tog] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(tog)}</span><a class="linkbtn" href="#" id="learn">change</a></div>` +
+    `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>`;
 }
 
-// ---------- the ⚙ panel's settings for both
+// ---------- the ⚙ settings dialog: seven tabs, same ids and handlers as before
 function renderPrefs() {
-  const el = document.getElementById('prefs'), B = prefs.buttons, keys = ['7', '8', '9', '0'];
-  const learn = t => `<a href="#" data-learn="${t}">change</a>`;
-  const parked = faces.filter(f => slotOf[f.i] < 0 && f.seen);
-  el.innerHTML = `<b>SHAPE</b><br>` + Object.entries(SHAPES).map(([k, v]) => `<label><input type="radio" name="shape" value="${k}" ${prefs.shape === k ? 'checked' : ''}> ${v.label}</label>`).join('<br>') +
-    `<br><i>Only the cube shows its screens at full size; on the others, go full screen to work.</i>` +
-    (parked.length ? `<br>parked (still running): ` + parked.map(f => `<a href="#" data-bring="${f.i}">${f.i + 1} · ${(f.title || 'shell').slice(0, 24)}</a>`).join(' · ') + ` (click = put it on the face in front)` : '') +
-    (window.GL ? `<br><b>MATERIAL</b> <select id="p-mat">${Object.entries(window.GL.MATERIALS).map(([k, m]) => `<option value="${k}" ${(prefs.material || 'brushed_steel') === k ? 'selected' : ''}>${m.label}</option>`).join('')}</select>` +
-      ` light <select id="p-light">${Object.keys(window.GL.LIGHTS).map(k => `<option ${(prefs.light || 'room') === k ? 'selected' : ''}>${k}</option>`).join('')}</select>` +
-      `<br><label><input type="checkbox" id="p-bloom" ${prefs.bloom !== false ? 'checked' : ''}> glow on highlights (bloom)</label>` +
-      ` <label><input type="checkbox" id="p-gl" ${prefs.gl !== false ? 'checked' : ''}> real 3D materials (WebGL)</label>` +
-      `<br>quality <select id="p-quality">${window.GL.QUALITY.map(k => `<option ${(prefs.quality || 'balanced') === k ? 'selected' : ''}>${k}</option>`).join('')}</select> (fast = smoothest on a busy machine)` : '') +
-    `<br><b>BROWSER ON A FACE</b> ` + (NATIVE ? `<input id="p-url" placeholder="https://…" style="width:170px" value="https://chatgpt.com"> <button id="p-web">put it on the face in front</button>` +
-      ` <button data-site="https://chatgpt.com">ChatGPT</button><button data-site="https://grok.com">Grok</button>` +
-      (isWeb(cur()) ? ` <button id="p-unweb">face ${cur() + 1} back to a terminal</button>` : '') : `<i>needs the 3D Terminal app (not a plain browser tab)</i>`) +
-    `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'matrix', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
-    ` ${prefs.theme === 'matrix' ? 'density' : 'motes'} <input type="range" id="p-motes" min="0.25" max="2" step="0.25" value="${prefs.motes}">` +
-    (prefs.theme === 'matrix' ? ` <select id="p-mpal">${MATRIX_PALETTES.map(p => `<option value="${p.id}" ${(prefs.matrixPalette || 'cyber') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}</select>` : '') + `<br>` +
-    buttonsTable() +
-    `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
-    [1, 2, 3, 4].map(g => `<span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span> ${g}: <b>${colourName(prefs.palette[g - 1])}</b> · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
-    `<br>colour this face: ${[1, 2, 3, 4].map(g => `<button data-assign="${g}">${g}</button>`).join('')}` +
-    `<br>glow <input type="range" id="p-glow" min="0" max="2" step="0.1" value="${prefs.glow}"> <label><input type="checkbox" id="p-lowfx" ${prefs.lowfx ? 'checked' : ''}> low effects</label>` +
-    `<br><label><input type="checkbox" id="p-cluster" ${prefs.cluster ? 'checked' : ''}> group faces by colour</label> (moves faces, never sessions)` +
-    `<br><b>ATTENTION</b> (a session waiting on you pulses in its colour)` +
-    `<br><label><input type="checkbox" id="p-fin" ${prefs.attnFinished ? 'checked' : ''}> also when a session finishes its turn</label>` +
-    `<br><label><input type="checkbox" id="p-quiet" ${prefs.quiet ? 'checked' : ''}> quiet: no list top-right (faces still pulse)</label>` +
-    `<br>fade the pulse toward white over <input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin}"> min (0 = never)` +
-    `<br>jump to the oldest waiting (and zoom in): Ctrl+Option+J · back to where you were: Ctrl+Option+B (ball buttons: see BUTTONS)`;
+  const el = document.getElementById('prefs'), keys = ['7', '8', '9', '0'];
+  const parked = faces.filter(f => slotOf[f.i] < 0 && f.seen), G = window.GL;
+  document.getElementById('dnav').innerHTML = TABS.map(([k, t]) => `<span class="dtab${prefsTab === k ? ' on' : ''}" data-t="${k}">${t}</span>`).join('');
+  document.getElementById('dsub').textContent = `${SHAPES[SH.name] ? SHAPES[SH.name].label.split(' · ')[0] : ''}${DEVICE ? ' · ' + ((devLayout() || {}).model || DEVICE.name) : ''}`;
+  const sec = (k, html) => `<div class="sec${prefsTab === k ? ' on' : ''}" data-sec="${k}">${html}</div>`;
+  el.innerHTML =
+    sec('look',
+      `<div class="grp">Shape</div>` + seg('shape', [['cube', 'Cube', '6 screens · full-size workspace'], ['cuboct', 'Cuboctahedron', '6 screens set in metal'], ['rhombi', 'Rhombicuboctahedron', '18 screens · an overview']], prefs.shape || 'cube') +
+      `<div class="note">Only the cube shows its screens at full size; on the others, go full screen to work.</div>` +
+      (parked.length ? `<div class="card"><b>Parked</b> <span class="note">still running · click one to put it on the face in front</span><div style="margin-top:6px">` +
+        parked.map(f => `<a class="linkbtn" href="#" data-bring="${f.i}">${f.i + 1} · ${esc((f.title || 'shell').slice(0, 28))}</a>`).join(' &nbsp;·&nbsp; ') + `</div></div>` : '') +
+      (G ? `<div class="grp">Material and light</div><div class="two">` +
+        fld('Material', sel('p-mat', Object.entries(G.MATERIALS).map(([k, m]) => [k, m.label]), prefs.material || 'brushed_steel')) +
+        fld('Light', sel('p-light', Object.keys(G.LIGHTS).map(k => [k, { room: 'studio room', rimOnly: 'rim only' }[k] || k]), prefs.light || 'room')) + `</div>` +
+        fld('Quality', sel('p-quality', G.QUALITY.map(k => [k, k]), prefs.quality || 'balanced'), 'Fast is smoothest on a busy machine.') +
+        tgl('p-bloom', 'Glow on highlights', 'A soft bloom where light catches the metal.', prefs.bloom !== false) +
+        tgl('p-gl', 'Real 3D materials', 'Off = the lighter, flat look.', prefs.gl !== false) : '') +
+      `<div class="grp">Space</div><div class="two">` +
+        fld('Background', sel('p-theme', [['liminal', 'liminal haze'], ['matrix', 'matrix rain'], ['void', 'void'], ['classic', 'classic violet']], prefs.theme || 'liminal')) +
+        (prefs.theme === 'matrix' ? fld('Rain colour', sel('p-mpal', MATRIX_PALETTES.map(p => [p.id, p.name]), prefs.matrixPalette || 'cyber')) : '<div></div>') + `</div>` +
+      rng('id="p-motes" min="0.25" max="2" step="0.25"', prefs.theme === 'matrix' ? 'Rain density' : 'Motes', prefs.motes ?? 1) +
+      tgl('p-lowfx', 'Low effects', 'No animation, no glow: the quietest look.', prefs.lowfx)) +
+    sec('motion', `<div id="motion"></div>`) +
+    sec('colours',
+      `<div class="note">Tap a colour button = colour the face in front · double tap = next face of that colour · hold = show only that colour.</div>` +
+      [1, 2, 3, 4].map(g => `<div class="palrow"><span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span>` +
+        `<span style="flex:1"><b>${colourName(prefs.palette[g - 1])}</b> <span class="note">colour ${g} · Ctrl+Option+${keys[g - 1]}</span></span>` +
+        `<button class="btn" data-assign="${g}">colour the face in front</button></div>`).join('') +
+      rng('id="p-glow" min="0" max="2" step="0.1"', 'Glow strength', prefs.glow ?? 1) +
+      tgl('p-cluster', 'Group faces by colour', 'Same colours sit next to each other. Moves faces, never sessions — with an undo.', prefs.cluster)) +
+    sec('attention',
+      `<div class="note">When a Claude session on another face needs you, that face breathes a glow in its own colour and shows ◆!. Jump: Ctrl+Option+J or your jump button · back: Ctrl+Option+B.</div>` +
+      tgl('p-fin', 'Also when a session finishes its turn', 'Not just approvals and questions.', prefs.attnFinished !== false) +
+      tgl('p-quiet', 'Quiet', 'No list in the corner; faces still glow.', prefs.quiet) +
+      `<div class="two">` + fld('Fade toward white over (minutes)', `<input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin ?? 15}">`, '0 = never fade.') +
+        rng('id="p-bgdim" min="0" max="0.9" step="0.1"', 'The space steps back by', prefs.bgDim ?? 0.6, Math.round((prefs.bgDim ?? 0.6) * 100) + '%') + `</div>` +
+      `<div class="grp">Sounds</div>` +
+      tgl('p-click', 'Click', 'When a screen locks into place.', prefs.click !== false) +
+      tgl('p-sndRise', 'Thunk', 'When a face rises and seats.', prefs.sndRise !== false) +
+      tgl('p-sndAttn', 'Chime', 'The first time a session asks for you.', prefs.sndAttn !== false)) +
+    sec('buttons', buttonsTable()) +
+    sec('browser', NATIVE ?
+      `<div class="note">Turn the face in front into a small real browser. Its terminal keeps running underneath.</div>` +
+      fld('Address', `<input id="p-url" placeholder="https://…" value="https://chatgpt.com">`) +
+      `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="p-web">Put it on the face in front</button>` +
+      `<button class="btn" data-site="https://chatgpt.com">ChatGPT</button><button class="btn" data-site="https://grok.com">Grok</button>` +
+      (isWeb(cur()) ? `<button class="btn" id="p-unweb">Face ${cur() + 1} back to a terminal</button>` : '') + `</div>` +
+      `<div class="note">In full screen: an address bar, ⌘⌥↩ back to the cube. Logins stay. Passkeys (Touch ID) can't work here — use password + code once.</div>`
+      : `<div class="note">Browser faces need the 3D Terminal app (not a plain browser tab).</div>`) +
+    sec('keys', `<div class="keys">` + HELP.map(([t, lines]) => `<div class="card"><b>${t}</b><div>${lines.map(esc).join('<br>')}</div></div>`).join('') + `</div>`);
+  // tabs
+  document.querySelectorAll('#dnav .dtab').forEach(t => { t.onclick = () => showTab(t.dataset.t); });
+  // (every handler below is the one the old panel had, on the same ids)
   el.querySelectorAll('[data-pal]').forEach(c => { c.onclick = e => { e.stopPropagation(); openPalette(+c.dataset.pal, c); }; });
   el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
   const pw = document.getElementById('p-web'); if (pw) pw.onclick = () => makeWeb(cur(), toUrl(document.getElementById('p-url').value));
@@ -874,19 +964,23 @@ function renderPrefs() {
   document.getElementById('p-theme').onchange = e => { prefs.theme = e.target.value; savePrefs(); applyPrefs(); };
   const glSet = (id, k, v) => { const el2 = document.getElementById(id); if (el2) el2.onchange = e => { prefs[k] = v(e.target); savePrefs(); window.cubePrefs = prefs; window.GL && window.GL.apply(); }; };
   glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
-  document.getElementById('p-motes').onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); };
+  { const r = document.getElementById('p-motes'); r.oninput = () => { r.nextElementSibling.textContent = r.value; }; r.onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); }; }
   const mp = document.getElementById('p-mpal'); if (mp) mp.onchange = e => { prefs.matrixPalette = e.target.value; savePrefs(); applyPrefs(); };
   const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
     prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();
     toastUndo(`${devLayout().model}: suggested map applied`, () => { prefs.buttons = was; prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: was }); savePrefs(); renderPrefs(); }); };
   el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
+  document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
-  document.getElementById('p-glow').oninput = e => { prefs.glow = +e.target.value; document.documentElement.style.setProperty('--glow', prefs.glow); };
-  document.getElementById('p-glow').onchange = savePrefs;
+  { const r = document.getElementById('p-glow'); r.oninput = e => { prefs.glow = +e.target.value; r.nextElementSibling.textContent = r.value; document.documentElement.style.setProperty('--glow', prefs.glow); }; r.onchange = savePrefs; }
   on('p-lowfx', t => { prefs.lowfx = t.checked; }); document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
     toastUndo(prefs.cluster ? 'faces grouped by colour' : 'faces back in their own places', () => { prefs.cluster = was; savePrefs(); applyPrefs(); }); };
   on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; });
   on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
+  { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
+  document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
+  for (const k of ['sndRise', 'sndAttn']) document.getElementById('p-' + k).onchange = e => { prefs[k] = e.target.checked; savePrefs(); };
+  renderMotion();
 }
 // ---------- ANALOG MOTION with virtual detents (spec "Next" priority, Chris 07:35: "the analog fix with the detent feel and adjustable
 // damping"). The Spaceball is a TORQUE: how hard you twist/tilt sets how hard the solid is pushed (dead zone, then a curve), against
@@ -968,28 +1062,23 @@ function clickSound(freq = 2400, vol = 0.25, key = 'click') {          // a soft
     n.buffer = b; n.connect(f); f.connect(g); g.connect(actx.destination); n.start(t); } catch (e) {}
 }
 function renderMotion() {
-  const el = document.getElementById('motion'); if (!el) return; const m = mo();
-  const sl = (k, label, min, max, step) => `${label} <input type="range" data-mo="${k}" min="${min}" max="${max}" step="${step}" value="${m[k]}"> <span>${m[k]}</span>`;
-  const nv = (v, t) => `<label><input type="radio" name="nav" value="${v}" ${prefs.nav === v ? 'checked' : ''}> ${t}</label>`, fl = prefs.flip || {};
-  el.innerHTML = `<b>MOTION</b> (${SH.name}; sliders saved per shape)<br>in your hand: twist spins it, push rolls toward where you push` +
-    (SH.name === 'cube' ? `<br><label><input type="checkbox" id="p-classic" ${prefs.cubeClassic ? 'checked' : ''}> classic control (cube only): one push = one face</label>` : '') +
-    `<br>roll with: <label><input type="radio" name="hsrc" value="slide" ${prefs.handSrc !== 'tilt' ? 'checked' : ''}> slide the ball</label>` +
-    ` <label><input type="radio" name="hsrc" value="tilt" ${prefs.handSrc === 'tilt' ? 'checked' : ''}> tilt the ball</label>` +
-    `<br>flip: <label><input type="checkbox" data-flip="x" ${fl.x ? 'checked' : ''}> left/right</label> <label><input type="checkbox" data-flip="y" ${fl.y ? 'checked' : ''}> up/down</label>` +
-    ` <label><input type="checkbox" data-flip="t" ${fl.t ? 'checked' : ''}> twist</label>` +
-    `<br><label><input type="checkbox" id="p-oneaxis" ${prefs.oneAxis !== false ? 'checked' : ''}> one motion at a time (roll OR twist, whichever is clearly stronger)</label>` +
-    `<br><label><input type="checkbox" id="p-upright" ${prefs.upright !== false ? 'checked' : ''}> turn every screen's text upright automatically</label>` +
-    `<br>ball now: <span id="ballread">—</span><br>` +
-    [sl('sens', 'sensitivity', 0.1, 3, 0.05), sl('dead', 'dead zone', 0, 150, 5), sl('curve', 'curve (fine control)', 0, 2, 0.1),
-     sl('inertia', 'inertia', 0.2, 4, 0.1), sl('damping', 'damping', 0.5, 10, 0.25), sl('snap', 'snap strength', 5, 150, 5),
-     sl('bounce', 'overshoot / bounce', 0, 1, 0.05), sl('notch', 'detent while rolling', 0, 0.6, 0.02), sl('hyst', 'hysteresis °', 0, 20, 1)].join('<br>') +
-    `<br>offer the face: rise <input type="range" id="p-offer" min="0" max="40" step="2" value="${prefs.offer ?? 20}"> <span>${prefs.offer ?? 20}%</span>` +
-    ` after <input type="range" id="p-offerd" min="0.3" max="4" step="0.1" value="${prefs.offerDelay ?? 1}"> <span>${prefs.offerDelay ?? 1}s</span> (0% = off)` +
-    `<br>sounds: <label><input type="checkbox" id="p-click" ${prefs.click !== false ? 'checked' : ''}> click when a screen locks</label>` +
-    ` <label><input type="checkbox" id="p-sndRise" ${prefs.sndRise !== false ? 'checked' : ''}> thunk when a face rises</label>` +
-    ` <label><input type="checkbox" id="p-sndAttn" ${prefs.sndAttn !== false ? 'checked' : ''}> chime when a session asks for you</label>` +
-    `<br>the space steps back <input type="range" id="p-bgdim" min="0" max="0.9" step="0.1" value="${prefs.bgDim ?? 0.6}"> <span>${Math.round((prefs.bgDim ?? 0.6) * 100)}%</span> while something waits or you're in a face` +
-    `<br><a href="#" id="mo-reset">reset this shape</a>`;
+  const el = document.getElementById('motion'); if (!el) return; const m = mo(), fl = prefs.flip || {};
+  const sl = (k, label, min, max, step) => rng(`data-mo="${k}" min="${min}" max="${max}" step="${step}"`, label, m[k]);
+  el.innerHTML = `<div class="note">Hold the solid in your hand: twist the ball to spin it, push any way to roll toward that side. These sliders are saved for the ${SHAPES[SH.name] ? SHAPES[SH.name].label.split(' · ')[0].toLowerCase() : SH.name}.</div>` +
+    (SH.name === 'cube' ? tgl('p-classic', 'Classic control', 'Cube only: one push = one face, the original stepping.', prefs.cubeClassic) : '') +
+    `<div class="grp">The ball</div>` + fld('Roll with', seg('hsrc', [['slide', 'Slide the ball'], ['tilt', 'Tilt the ball']], prefs.handSrc === 'tilt' ? 'tilt' : 'slide')) +
+    fld('Flip a direction if it goes the wrong way', `<div class="three">` + [['x', 'left / right'], ['y', 'up / down'], ['t', 'twist']].map(([k, t]) => tgl('', t, '', fl[k], `data-flip="${k}"`)).join('') + `</div>`) +
+    tgl('p-oneaxis', 'One motion at a time', 'Roll or twist, whichever is clearly stronger: a tilt never drags a twist along.', prefs.oneAxis !== false) +
+    tgl('p-upright', 'Keep every screen’s text upright', 'Off = faces keep their own turn; you twist them yourself.', prefs.upright !== false) +
+    `<div class="card"><span class="note">Ball right now</span><div class="readout" id="ballread">—</div></div>` +
+    `<div class="grp">Feel</div><div class="two">` +
+    [sl('sens', 'Sensitivity', 0.1, 3, 0.05), sl('dead', 'Dead zone', 0, 150, 5), sl('curve', 'Fine-control curve', 0, 2, 0.1), sl('inertia', 'Inertia', 0.2, 4, 0.1),
+     sl('damping', 'Damping', 0.5, 10, 0.25), sl('snap', 'Snap strength', 5, 150, 5), sl('bounce', 'Overshoot', 0, 1, 0.05), sl('notch', 'Detent while rolling', 0, 0.6, 0.02),
+     sl('hyst', 'Hysteresis (°)', 0, 20, 1)].join('') + `</div>` +
+    `<div class="grp">The offering</div><div class="two">` +
+    rng('id="p-offer" min="0" max="40" step="2"', 'Rise (0 = off)', prefs.offer ?? 35, (prefs.offer ?? 35) + '%') +
+    rng('id="p-offerd" min="0.3" max="4" step="0.1"', 'After resting', prefs.offerDelay ?? 1, (prefs.offerDelay ?? 1) + 's') + `</div>` +
+    `<div style="margin-top:10px"><button class="btn" id="mo-reset">Reset the feel for this shape</button></div>`;
   el.querySelectorAll('[data-mo]').forEach(r => { r.oninput = () => { const mm = (prefs.motion = prefs.motion || {})[SH.name] = Object.assign({}, (prefs.motion || {})[SH.name] || {});
     mm[r.dataset.mo] = +r.value; r.nextElementSibling.textContent = r.value; }; r.onchange = savePrefs; });
   document.getElementById('p-oneaxis').onchange = e => { prefs.oneAxis = e.target.checked; savePrefs(); };
@@ -997,43 +1086,24 @@ function renderMotion() {
   const cc = document.getElementById('p-classic'); if (cc) cc.onchange = () => { prefs.cubeClassic = cc.checked; W = [0, 0, 0]; cmdTarget = true; savePrefs(); };
   el.querySelectorAll('[name=hsrc]').forEach(r => { r.onchange = () => { prefs.handSrc = r.value; savePrefs(); }; });
   el.querySelectorAll('[data-flip]').forEach(c => { c.onchange = () => { prefs.flip = Object.assign({}, prefs.flip || {}, { [c.dataset.flip]: c.checked }); savePrefs(); }; });
-  document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
-  for (const k of ['sndRise', 'sndAttn']) document.getElementById('p-' + k).onchange = e => { prefs[k] = e.target.checked; savePrefs(); };
-  { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
   for (const [id, k] of [['p-offer', 'offer'], ['p-offerd', 'offerDelay']]) { const r = document.getElementById(id);
     r.oninput = () => { prefs[k] = +r.value; r.nextElementSibling.textContent = r.value + (k === 'offer' ? '%' : 's'); }; r.onchange = savePrefs; }
   document.getElementById('mo-reset').onclick = e => { e.preventDefault(); if (prefs.motion) delete prefs.motion[SH.name]; savePrefs(); renderMotion(); };
 }
-const HELP = `SPACEBALL
-twist = roll side to side · tilt = roll over the top
-push down = select the face · push again = full screen
-pull up = back to the cube · button 3 = home
-hand-back button (6, or yours) = ball to your Mac / take it back
-
-POWERMATE KNOB
-turn = roll · tap = side-to-side ⇄ top-to-bottom
-double tap = select · long press = full screen on/off
-
-MOUSE / TRACKPAD
-drag = spin it (fling = coast) · RIGHT-drag (or Option-drag, wheel-press drag) = twist it like a dial
-Option + scroll wheel = twist
-two-finger rotate = twist · Ctrl+Option+[ ] = quarter twist
-click a face = go there
-double-click = zoom in · right-click (full screen) = back out
-two-finger swipe = spin · pinch out = in · pinch in = out
-
-KEYBOARD (Ctrl+Option)
-arrows = roll · Return = full screen · 1-6 = jump to a face
-7 8 9 0 = colours 1-4 · J = jump to a waiting face · B = back
-click a face to select it
-
-COLOURS + ATTENTION: settings below`;
-document.getElementById('helptext').textContent = HELP;
-document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
-document.getElementById('gear').onclick = () => {                    // (08:49 Chris: settings were behind a full-screen browser face)
-  help.classList.toggle('on');
-  if (fullFace >= 0 && isWeb(fullFace)) { if (help.classList.contains('on')) NATIVE && NATIVE.postMessage({ op: 'hide', face: fullFace }); else showWeb(fullFace); }
-};
+// the cheat sheet (the Keys tab). 09:58: rewritten for how it drives NOW (the old text still described twist/tilt rolling).
+const HELP = [
+  ['SPACEBALL', ['twist = spin the solid in place', 'push any way = roll toward that side', 'push down = select · again = full screen', 'pull up = back to the cube', 'jump / back / colours / home: see Buttons']],
+  ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts)', 'right-drag or Option-drag = twist', 'Option + scroll = twist', 'click a face = go there · double-click = zoom in', 'right-click in full screen = back out', 'two-finger swipe = spin · rotate = twist', 'pinch out = in · pinch in = out']],
+  ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
+  ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to a face · [ ] = quarter twist', '7 8 9 0 = colours 1–4', 'J = jump to a waiting face · B = back', '⌘⌥↩ = back to the cube from a browser face']]];
+function toggleSettings(open) {
+  const want = open ?? !help.classList.contains('on'); help.classList.toggle('on', want); if (want) renderPrefs();
+  if (fullFace >= 0 && isWeb(fullFace)) { if (want) NATIVE && NATIVE.postMessage({ op: 'hide', face: fullFace }); else showWeb(fullFace); }   // (08:49: never under a browser face)
+}
+document.getElementById('gear').onclick = () => toggleSettings();
+document.getElementById('dclose').onclick = () => toggleSettings(false);
+help.addEventListener('mousedown', e => { if (e.target === help) toggleSettings(false); });     // a click on the backdrop closes it
+addEventListener('keydown', e => { if (e.key === 'Escape' && help.classList.contains('on')) { e.preventDefault(); e.stopPropagation(); toggleSettings(false); } }, true);
 faces.forEach(label);                                                  // after fullFace exists (label reads it)
 sizeBg(); requestAnimationFrame(bgLoop);
 applyPrefs();                                                          // defaults until the server sends the saved prefs
