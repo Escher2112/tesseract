@@ -668,6 +668,7 @@ const scene = document.getElementById('scene'); let drag = null, wheelT = 0, pin
 // 09:18 Chris: "the faces that are upside down — how can the user re-orient them, since they don't have 3D spin in mouse mode?" →
 // Option-drag turns the solid around its centre like a dial (the angle your pointer sweeps around the middle of the window), the
 // trackpad's two-finger rotate does the same, and Ctrl+Option+[ / ] turns it a quarter. Letting go clicks it into the nearest quarter.
+const TWISTK = 1 / 3;                                                   // 09:20 Chris: Option-drag was very sensitive → a third of the pointer's sweep
 function twistBy(deg) { Q = qNorm(qMul(qAxis(0, 0, 1, deg), Q)); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false; }
 const aroundMiddle = e => Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2) * 180 / Math.PI;
 function twistQuarter(sign) { if (fullFace >= 0) return; Qt = qNorm(qMul(qAxis(0, 0, 1, 90 * sign), Qt)); cmdTarget = true; settled = false; present(Qt); }
@@ -687,7 +688,7 @@ scene.addEventListener('mousedown', e => {
 addEventListener('mousemove', e => {
   if (!drag) return; const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
   if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return; drag.moved = true;
-  if (drag.twist) { const a = aroundMiddle(e); let d = a - drag.ang; if (d > 180) d -= 360; if (d < -180) d += 360; drag.ang = a; twistBy(d); drag.lx = e.clientX; drag.ly = e.clientY; return; }
+  if (drag.twist) { const a = aroundMiddle(e); let d = a - drag.ang; if (d > 180) d -= 360; if (d < -180) d += 360; drag.ang = a; twistBy(d * TWISTK); drag.lx = e.clientX; drag.ly = e.clientY; return; }
   rotateBy(dx, dy);
   const now = performance.now(), dt = Math.max(1, now - drag.t); drag.vx = 0.6 * drag.vx + 0.4 * dx / dt; drag.vy = 0.6 * drag.vy + 0.4 * dy / dt;
   drag.t = now; drag.lx = e.clientX; drag.ly = e.clientY;
