@@ -56,7 +56,7 @@ const QUALITY = { high: { dpr: 2, msaa: 4, bloom: true }, balanced: { dpr: 1.5, 
 
 let renderer, scene, camera, composer, rt, bloom, body, mesh, envRT, keyL, fillL, rimL, amb, polys = null;
 let builtFor = null, matKey = null, lightKey = null, qualKey = null, themeKey = null, moteN = -1, motes = null, sparkle = null, backdrop = null, rain = null;
-let last = 0, lastQ = '', dirty = true, offerMesh = null, offerKey = '', bgLevel = 1;
+let last = 0, lastQ = '', dirty = true, offerMesh = null, offerKey = '', bgLevel = 1, shadowMesh = null;
 const prefs = () => window.cubePrefs || {};                            // the page hands these over every frame (its let-variables aren't window properties)
 const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 
@@ -224,6 +224,7 @@ function buildBody() {
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   builtFor = S; if (mesh) { body.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
   if (offerMesh) { body.remove(offerMesh); offerMesh.geometry.dispose(); offerMesh = null; offerKey = ''; }
+  if (shadowMesh) { body.remove(shadowMesh); shadowMesh = null; }
   matKey = prefs().material || 'brushed_steel'; mesh = new THREE.Mesh(g, makeMaterial(matKey)); body.add(mesh);
   console.log(`[gl] body ${S.name}: ${faces.length} faces, ${edges.size} rounded edges, ${corners.size} corners, bevel ${ch.toFixed(1)}px, ${pos.length / 9} triangles`);
 }
@@ -235,7 +236,7 @@ function updateOffer() {
   const L = window.cubeLift || {}, key = `${L.slot}|${(L.h || 0).toFixed(1)}|${builtFor && builtFor.name}`;
   if (offerMesh) offerMesh.material = mesh.material;
   if (key === offerKey) return false; offerKey = key;
-  if (!polys || !(L.h > 0.05) || !(L.slot >= 0) || !polys[L.slot]) { if (offerMesh) offerMesh.visible = false; return true; }
+  if (!polys || !(L.h > 0.05) || !(L.slot >= 0) || !polys[L.slot]) { if (offerMesh) offerMesh.visible = false; if (shadowMesh) shadowMesh.visible = false; return true; }
   const P = polys[L.slot], n = P.want, base = P.pts, top = base.map(p => p.clone().addScaledVector(n, L.h)), pos = [], nor = [], uv = [];
   const C = base.reduce((s, p) => s.add(p.clone()), new THREE.Vector3()).multiplyScalar(1 / base.length);
   const quad = (q, nn, us) => { let pts = q, uvs = us; if (q[1].clone().sub(q[0]).cross(q[2].clone().sub(q[0])).dot(nn) < 0) { pts = [...q].reverse(); uvs = [...us].reverse(); }
@@ -245,7 +246,15 @@ function updateOffer() {
     quad([base[i], base[j], top[j], top[i]], out, [P.uvs[i], P.uvs[j], P.uvs[j], P.uvs[i]]); }
   if (!offerMesh) { offerMesh = new THREE.Mesh(new THREE.BufferGeometry(), mesh.material); body.add(offerMesh); }
   const g = offerMesh.geometry; g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.computeBoundingSphere(); offerMesh.visible = true; return true;
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.computeBoundingSphere(); offerMesh.visible = true;
+  // 09:42 "more oomph": a soft contact shadow on the solid around the block's base (a plain dark radial texture: portable), darker the higher it stands
+  if (!shadowMesh) { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 20, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(0,0,0,0.85)'); gr.addColorStop(0.55, 'rgba(0,0,0,0.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+    shadowMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    body.add(shadowMesh); }
+  const span = base[0].distanceTo(base[1]) * 1.55, y = base[1].clone().sub(base[0]).normalize(), m4 = new THREE.Matrix4().makeBasis(y, n.clone().cross(y), n);
+  shadowMesh.quaternion.setFromRotationMatrix(m4); shadowMesh.position.copy(C).addScaledVector(n, 0.6); shadowMesh.scale.set(span, span, 1);
+  shadowMesh.material.opacity = Math.min(1, L.h / (0.25 * builtFor.a)); shadowMesh.visible = true; return true;
 }
 
 function size() {

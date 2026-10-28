@@ -42,7 +42,8 @@
   .glyph { position: absolute; top: calc(6px / var(--k, 1)); right: calc(9px / var(--k, 1)); width: calc(17px / var(--k, 1)); height: calc(17px / var(--k, 1)); background: #fff; transform: rotate(45deg);
            display: none; z-index: 4; box-shadow: 0 0 8px rgb(0 0 0 / .8); }
   .glyph::after { content: '!'; position: absolute; inset: 0; transform: rotate(-45deg); color: #000; font: 700 calc(13px / var(--k, 1)) Menlo, monospace; display: flex; align-items: center; justify-content: center; }
-  .face.attn .glyph { display: block; }  .face.attn .hdr { padding-right: calc(36px / var(--k, 1)); }
+  .face.attn .glyph { display: block; }
+  .face:not(.offered) .inner::before { content: ''; position: absolute; inset: 0; background: rgb(0 0 0 / calc(.32 * var(--offer, 0))); pointer-events: none; z-index: 5; }  .face.attn .hdr { padding-right: calc(36px / var(--k, 1)); }
   .hdr .st { margin-left: 12px; color: #fff; }  body.overview .hdr .st { display: none; }   /* small plates: the title wins; the ◆! glyph + the list carry the status */
   /* overview (any shape but the cube): a readable title plate, the terminal itself dimmed on faces you're not looking at */
   body.overview .hdr { font-size: calc(15px / var(--k)); padding: calc(6px / var(--k)) calc(10px / var(--k)); }
@@ -664,20 +665,27 @@ setInterval(() => {                                                      // keep
 // both ends), seats with a soft low thunk, and sinks back on its own slower cam stroke the moment anything moves, visibly, while the solid rolls on (09:13 Chris: "the reverse when you
 // leave a face… you can see it dropping back into the solid"). gl.js grows real side walls under it (cubeLift).
 const cam = t => t * t * t * (t * (t * 6 - 15) + 10);                   // smootherstep
+// 09:42 Chris: "it works, but it's very subtle… we may need more oomph". The rise now carries a touch PAST its stop (6%) on the cam,
+// then drops back and seats (that's when the thunk lands), the rest of the solid dims a little while a face is offered, and gl.js lays
+// a soft contact shadow on the solid around the block's base. Default height 35% of an edge (was 20).
+const riseCurve = t => t < 0.8 ? 1.06 * cam(t / 0.8) : 1.06 - 0.06 * cam((t - 0.8) / 0.2);
 let lift = { face: -1, v: 0, from: 0, to: 0, t0: 0, dur: 1 }, restFace = -1, restSince = 0, lastQo = [1, 0, 0, 0];
 function offer(now) {
-  const H = ((prefs.offer ?? 20) / 100) * SH.a, delay = (prefs.offerDelay ?? 1) * 1000, fr = frontFace();
+  const H = ((prefs.offer ?? 35) / 100) * SH.a, delay = (prefs.offerDelay ?? 1) * 1000, fr = frontFace();
   // "still" = turned less than ~0.05° since last frame (09:1x: a 4-decimal string compare flickered on the settle's rounding and kept
   // restarting the rest timer, so the face never rose)
   const dq = Math.abs(Q[0] * lastQo[0] + Q[1] * lastQo[1] + Q[2] * lastQo[2] + Q[3] * lastQo[3]), still = dq > 0.9999999 && !drag && (navMode() === 'step' || settled); lastQo = Q;
   if (!still || fr !== restFace || fullFace >= 0 || zooming) { restFace = fr; restSince = now; }
   const want = H > 0 && still && fullFace < 0 && !zooming && now - restSince > delay ? 1 : 0;
   const target = lift.face === fr ? want : 0;                           // a different face rests now: the risen one sinks first
-  if (target !== lift.to) { lift.from = lift.v; lift.to = target; lift.t0 = now; lift.dur = target ? 1400 * (1 - lift.v) + 1 : 900 * lift.v + 1; }   // 09:13 Chris: watch it drop back in as you spin away (0.9 s cam stroke)
-  const t = Math.min(1, (now - lift.t0) / lift.dur), was = lift.v; lift.v = lift.from + (lift.to - lift.from) * cam(t);
+  if (target !== lift.to) { lift.from = lift.v; lift.to = target; lift.t0 = now; lift.dur = target ? 1700 * (1 - Math.min(1, lift.v)) + 1 : 900 * lift.v + 1; lift.rising = !!target; }   // 09:13 Chris: watch it drop back in as you spin away (0.9 s cam stroke)
+  const t = Math.min(1, (now - lift.t0) / lift.dur), was = lift.v; lift.v = lift.from + (lift.to - lift.from) * (lift.rising ? riseCurve(t) : cam(t)); lift.seated = lift.rising && t >= 1;
   if (lift.face >= 0) { const el = faces[lift.face].el; el.style.setProperty('--lift', (lift.v * H).toFixed(2) + 'px');
-    el.style.transition = lift.v > 0 && lift.v < 1 ? 'none' : ''; }
-  if (lift.to === 1 && was < 1 && lift.v >= 1) clickSound(520, 0.18, 'sndRise');  // seated: a soft low thunk
+    el.style.transition = lift.v > 0 && !lift.seated ? 'none' : ''; }
+  // 3) the rest of the solid steps back a little while a face is offered (a dark veil over the other screens, not a filter: cheap)
+  document.documentElement.style.setProperty('--offer', Math.max(0, Math.min(1, lift.v)).toFixed(3));
+  faces.forEach(f => f.el.classList.toggle('offered', f.i === lift.face && lift.v > 0.01));
+  if (lift.seated && !lift.thunked) { lift.thunked = true; clickSound(520, 0.18, 'sndRise'); } if (!lift.rising) lift.thunked = false;  // seated (after the overshoot): a soft low thunk
   if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) faces[lift.face].el.style.removeProperty('--lift'); lift.face = fr; }
   window.cubeLift = { face: lift.face, slot: lift.face >= 0 ? slotOf[lift.face] : -1, h: lift.v * H };
 }
