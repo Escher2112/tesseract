@@ -16,7 +16,7 @@ from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8781   # the Mac app uses 8782
-KEY = secrets.token_urlsafe(18); FACES = 6
+KEY = secrets.token_urlsafe(18); FACES = 18   # 2026-10-28 shapes: up to 18 sessions (rhombicuboctahedron); started only when needed
 HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 listeners, listeners_lock = [], threading.Lock()
 def send(obj):
@@ -39,6 +39,9 @@ class Shell:
         self.face, self.buf, self.lock, self.pid, self.fd, self.size = face, bytearray(), threading.Lock(), None, None, (24, 80)
         self.restored = False
     def alive(self): return self.fd is not None
+    def had_session(self):                                            # this face had Claude/Codex running at the last quit: bring it back
+        try: return bool(json.load(open(os.path.join(FACES_DIR, f"face-{self.face + 1}.json"))).get("active"))
+        except Exception: return False
     def start(self):
         pid, fd = pty.fork()
         if pid == 0:                                                   # child: a login zsh in Chris's home
@@ -103,7 +106,7 @@ FACES_DIR = os.path.expanduser("~/.config/3d-terminal/faces")
 # ---------- Attention Routing (Chris + Riven's spec, 2026-10-28): which faces are waiting on a person. Set ONLY by the hook's real
 # events (a permission prompt, a question, a finished turn) and cleared ONLY by real progress (you typed a prompt, a tool ran, the
 # session ended, the shell died). Looking at a face never clears it. "since" stays the time it FIRST started waiting.
-attn, attn_lock = [{"s": "working", "r": "", "since": 0} for _ in range(6)], threading.Lock()
+attn, attn_lock = [{"s": "working", "r": "", "since": 0} for _ in range(FACES)], threading.Lock()
 def set_attn(face, state, reason):
     with attn_lock:
         a = attn[face]
@@ -153,6 +156,7 @@ def codex_record(cpid):
     return None
 def stop_and_remember():                                             # before the shells close: which faces had Claude running?
     for s in shells:
+        if s.pid is None: continue                                     # never started this run (a parked face): keep its record as it was
         rec = os.path.join(FACES_DIR, f"face-{s.face + 1}.json")
         try:
             cx = program_under(s.pid, {"codex"}) if s.pid else None
@@ -177,7 +181,7 @@ def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
 PAGE_BUTTONS = {"jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
-PREF_KEYS = {"colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin"}
+PREF_KEYS = {"colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
@@ -251,8 +255,8 @@ class H(BaseHTTPRequestHandler):
         if not self.guard(q): return self.deny()
         self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.send_header("Cache-Control", "no-cache")
         self.end_headers(); mine = queue.Queue()
-        for s in shells:
-            if not s.alive(): s.start()
+        for s in shells:                                               # the first six always run; more start when a shape shows them
+            if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
         mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})}))
         with attn_lock:
@@ -284,6 +288,8 @@ class H(BaseHTTPRequestHandler):
         if s is None: return self.deny(400)
         body = self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
         if u.path == "/in": s.write(body)
+        elif u.path == "/start":                                      # the page shows this face now: make sure its shell runs
+            if not s.alive(): s.start()
         elif u.path == "/attn":
             try: m = json.loads(body)
             except Exception: return self.deny(400)

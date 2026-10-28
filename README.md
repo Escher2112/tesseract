@@ -74,6 +74,17 @@ under each of `Notification`, `Stop`, `UserPromptSubmit`, `PostToolUse` and `Ses
 Like the reopen hook, it does nothing outside a 3D Terminal face. It takes effect for sessions started after you quit and reopen the app.
 Codex sessions don't report attention yet.
 
+## Shapes and space
+⚙ → SHAPE picks the solid. Screens are always squares; the triangles between them are brushed-metal structure, lit live from a key
+light, and they pick up a faint tint from a coloured screen beside them.
+- **Cube**: 6 screens at full size. The everyday workspace.
+- **Cuboctahedron**: the same 6 screens, set in 8 metal triangles.
+- **Rhombicuboctahedron**: 18 screens in three crossing rings of eight; each push rolls an eighth of a turn to the next screen.
+Only the cube shows its screens at full size; on the others, go full screen to work. Changing shape never closes anything: sessions a
+shape has no room for are **parked** (still running), listed in ⚙, and one click puts any of them on the face in front of you.
+⚙ → SPACE sets the room the solid floats in: **liminal** (deep grey haze, drifting dust motes, the odd sparkle; the default), **void**
+(plain black) or **classic** (the original violet glow), plus how thick the motes are. Low effects freezes it.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).
