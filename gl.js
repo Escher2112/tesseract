@@ -56,7 +56,7 @@ const QUALITY = { high: { dpr: 2, msaa: 4, bloom: true }, balanced: { dpr: 1.5, 
 
 let renderer, scene, camera, composer, rt, bloom, body, mesh, envRT, keyL, fillL, rimL, amb, polys = null;
 let builtFor = null, matKey = null, lightKey = null, qualKey = null, themeKey = null, moteN = -1, motes = null, sparkle = null, backdrop = null, rain = null;
-let last = 0, lastQ = '', dirty = true, offerMesh = null, offerKey = '';
+let last = 0, lastQ = '', dirty = true, offerMesh = null, offerKey = '', bgLevel = 1;
 const prefs = () => window.cubePrefs || {};                            // the page hands these over every frame (its let-variables aren't window properties)
 const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 
@@ -286,9 +286,12 @@ function loop(now) {
   if (builtFor !== window.cubeSH) { buildBody(); dirty = true; }
   if (mesh && updateOffer()) dirty = true;
   const q = window.cubeShown || [1, 0, 0, 0], qs = q.map(v => v.toFixed(5)).join(), moving = qs !== lastQ;
-  if (!moving && !dirty && now - last < (rain ? 50 : 33)) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
+  if (!moving && !dirty && Math.abs((window.cubeBg ?? 1) - bgLevel) < 0.002 && now - last < (rain ? 50 : 33)) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
   const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now; lastQ = qs; dirty = false;
   body.quaternion.set(-q[1], q[2], -q[3], q[0]); body.position.set(0, 0, -window.cubeSH.r);   // page rotation (y down) → GL (y up)
+  // (Riven's review, 6) the space steps back while something waits or Chris is inside a face: index.html sets cubeBg (1 = full), we ease to it
+  const want = window.cubeBg ?? 1; if (Math.abs(want - bgLevel) > 0.002) { bgLevel += (want - bgLevel) * Math.min(1, dt * 2.5); dirty = true; }
+  scene.backgroundIntensity = bgLevel; if (motes) motes.material.opacity = 0.45 * bgLevel; if (sparkle) sparkle.material.opacity *= bgLevel;
   driftSpace(dt); composer.render();
 }
 try { init(); window.GL = { apply, MATERIALS, LIGHTS, QUALITY: Object.keys(QUALITY) }; window.dispatchEvent(new Event('gl-ready')); }

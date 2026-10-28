@@ -9,7 +9,7 @@
 <style>
   :root { --glow: 1; --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
   html, body { margin: 0; height: 100%; background: #050507; overflow: hidden; font: 12px Menlo, Monaco, monospace; color: #b9adf0; }
-  #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; transition: opacity 1.2s ease; }
   /* 2026-10-28 real renderer (gl.js): a WebGL canvas draws the solid's body (materials, lights, chamfers) under the DOM screens. The
      motes canvas becomes its background texture, and the CSS-faked metal (bezel + triangles) steps aside. */
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
@@ -33,7 +33,20 @@
            border: 2px solid #1b1726; box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 0 1px rgb(255 255 255 / .12); }
   .tri { position: absolute; backface-visibility: hidden; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
   .face.front .inner { box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 18px rgba(140, 110, 255, .35); }
-  .face.sel .inner { border-color: var(--sel); box-shadow: 0 0 26px rgba(201, 184, 255, .7); }
+  /* 2026-10-28 09:3x RIVEN'S REVIEW: one state, one channel. Group = the etched lines (+ bars), ALWAYS its own colour. Offered = the
+     rise. Selected = a small corner bracket, only when your typing goes somewhere other than the face in front. Waiting = an OUTER
+     glow + ring that pulses (steady 1.6 s, aging whitens it, never faster) and the ◆! glyph. Nothing repaints another state's channel. */
+  .face.sel .inner { box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 12px rgba(201, 184, 255, .3); }
+  .face.mark::before { content: ''; position: absolute; left: -8px; top: -8px; width: 22px; height: 22px; border-left: 3px solid #fff; border-top: 3px solid #fff; z-index: 3; }
+  .face.colored .hdr { border-top: 3px solid var(--gc); }  .face.colored .inner::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--gc); }
+  .glyph { position: absolute; top: calc(6px / var(--k, 1)); right: calc(9px / var(--k, 1)); width: calc(17px / var(--k, 1)); height: calc(17px / var(--k, 1)); background: #fff; transform: rotate(45deg);
+           display: none; z-index: 4; box-shadow: 0 0 8px rgb(0 0 0 / .8); }
+  .glyph::after { content: '!'; position: absolute; inset: 0; transform: rotate(-45deg); color: #000; font: 700 calc(13px / var(--k, 1)) Menlo, monospace; display: flex; align-items: center; justify-content: center; }
+  .face.attn .glyph { display: block; }  .face.attn .hdr { padding-right: calc(36px / var(--k, 1)); }
+  .hdr .st { margin-left: 12px; color: #fff; }  body.overview .hdr .st { display: none; }   /* small plates: the title wins; the ◆! glyph + the list carry the status */
+  /* overview (any shape but the cube): a readable title plate, the terminal itself dimmed on faces you're not looking at */
+  body.overview .hdr { font-size: calc(15px / var(--k)); padding: calc(6px / var(--k)) calc(10px / var(--k)); }
+  body.overview .face:not(.front) .host { opacity: .35; }  body.overview .websnap { top: calc(30px / var(--k)); height: calc(100% - 30px / var(--k)); }
   .hdr { font-size: 15px; font-weight: 700; letter-spacing: .02em; padding: 6px 10px; background: #17132b; color: #cfc4ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
   .host { flex: 1; padding: 4px; min-height: 0; }
   .host .xterm { height: 100%; }
@@ -54,11 +67,12 @@
   .face.colored .inner { border: 3px double var(--gc); box-shadow: 0 0 calc(16px * var(--glow)) var(--gc), inset 0 0 calc(6px * var(--glow)) var(--gc); }
   .face.colored.sel .inner { box-shadow: 0 0 calc(34px * var(--glow)) var(--gc), inset 0 0 calc(10px * var(--glow)) var(--gc); }
   .face.attn .inner { animation: pulse 1.6s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { border-color: var(--pc); box-shadow: 0 0 6px var(--pc); }
-                     50% { border-color: var(--pc); box-shadow: 0 0 calc(40px * var(--glow) + 10px) var(--pc), inset 0 0 14px var(--pc); } }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 4px var(--pc), 0 0 0 1px var(--pc); }
+                     50% { box-shadow: 0 0 calc(36px * var(--glow) + 10px) var(--pc), 0 0 0 4px var(--pc); } }
   .face.dim { opacity: .15; }
   body.lowfx .face.colored .inner, body.lowfx .face.colored.sel .inner { box-shadow: none; }
-  body.lowfx .face.attn .inner { animation: none; border: 4px solid var(--pc); }
+  body.lowfx .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); }
+  @media (prefers-reduced-motion: reduce) { .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); } }
   #full.colored { border: 3px double var(--gc); box-sizing: border-box; }
   #attnq { position: fixed; top: 6px; right: 40px; z-index: 8; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
@@ -153,9 +167,10 @@ const THEME = { background: '#000000', foreground: '#009eff', cursor: '#0054a2',
 const faces = NAMES.map((name, i) => {
   const el = document.createElement('div'); el.className = 'face'; el.style.display = slotOf[i] >= 0 ? '' : 'none'; if (slotOf[i] >= 0) el.style.transform = P(i) + ' translateZ(var(--lift, 0px))';
   const bezel = document.createElement('div'); bezel.className = 'bezel metal'; const inner = document.createElement('div'); inner.className = 'inner';
-  const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.textContent = name;
+  const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.innerHTML = '<span class="ttl"></span><span class="st"></span>'; hdr.firstChild.textContent = name;
   const host = document.createElement('div'); host.className = 'host'; const snap = document.createElement('img'); snap.className = 'websnap';
-  inner.append(hdr, host, snap); el.append(bezel, inner); cube.appendChild(el);
+  const glyph = document.createElement('div'); glyph.className = 'glyph'; glyph.title = 'needs you';
+  inner.append(hdr, host, snap, glyph); el.append(bezel, inner); cube.appendChild(el);
   const term = new TerminalCls({ fontFamily: 'Menlo, Monaco, monospace', fontSize: 10, cursorBlink: true, scrollback: 5000,
     theme: THEME });
   const fit = new FitCls(); term.loadAddon(fit); term.open(host);
@@ -165,7 +180,7 @@ const faces = NAMES.map((name, i) => {
   // (clicks, drags, double-clicks on the solid are handled once, for the whole scene: see MOUSE + TRACKPAD)
   return f;
 });
-function label(f) { const t = f.name + '  ·  ' + (isWeb(f.i) ? '🌐 ' + (f.webTitle || f.webUrl || 'browser') : (f.title || 'no session yet: type claude')); f.hdr.textContent = t; if (fullFace === f.i && !isWeb(f.i)) fullhdr.textContent = t + '   (button 2 / Ctrl+Option+Return = back to the cube)'; if (typeof renderAttn === 'function') renderAttn(); }
+function label(f) { const t = f.name + '  ·  ' + (isWeb(f.i) ? '🌐 ' + (f.webTitle || f.webUrl || 'browser') : (f.title || 'no session yet: type claude')); f.hdr.firstChild.textContent = t; if (fullFace === f.i && !isWeb(f.i)) fullhdr.textContent = t + '   (button 2 / Ctrl+Option+Return = back to the cube)'; if (typeof renderAttn === 'function') renderAttn(); }
 
 // ---------- talking to server.py: one stream in; keystrokes out in order, one request at a time per face
 const post = (path, body) => fetch(`${path}${path.includes('?') ? '&' : '?'}k=${encodeURIComponent(KEY)}`, { method: 'POST', body });
@@ -183,7 +198,8 @@ es.onmessage = e => {
   else if (m.k === 'sbb') sbButtons(m.m);
   else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
   else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; savePrefs(); renderPrefs(); toast(`${m.target} is now button ${m.b}`); }
-  else if (m.k === 'attn') { const a = att[m.f]; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn(); }
+  else if (m.k === 'attn') { const a = att[m.f], fresh = a.s !== 'needs' && m.s === 'needs'; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn();
+    if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
 };
@@ -342,6 +358,10 @@ function knob(t, b) {
     else kTapTimer = setTimeout(() => { kTapTimer = null; kMode = kMode === 'side' ? 'updown' : 'side'; showMode(); }, 300);
   }
 }
+function toastUndo(msg, fn) {                                            // (Riven 5) a regroup never happens silently: it comes with an undo
+  const el = document.getElementById('toast'); el.textContent = msg + '  '; const b = document.createElement('button'); b.textContent = 'undo';
+  b.onclick = () => { fn(); el.style.display = 'none'; }; el.appendChild(b); el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 6000);
+}
 function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 1500); }
 function showMode() { toast(`knob now rolls ${kMode === 'side' ? 'side to side' : 'top to bottom'}`); }
 addEventListener('keydown', e => {
@@ -390,7 +410,9 @@ function frame(now) {
   offer(now);
   window.cubeShown = shown; window.cubeSH = SH; window.cubePrefs = prefs;       // handed to gl.js (the WebGL body) every frame
   if (!document.body.classList.contains('gl')) light(shown);
-  const fr = frontFace(); faces.forEach((f, j) => f.el.classList.toggle('front', j === fr));
+  const fr = frontFace(); faces.forEach((f, j) => { f.el.classList.toggle('front', j === fr); f.el.classList.toggle('mark', j === selFace && selFace !== fr); });
+  // 6 (Riven): the space steps back while something waits for Chris or he's inside a face (prefs.bgDim of the way; 0 = never)
+  const bgLevel = (fullFace >= 0 || faces.some(f => waiting(f.i))) ? 1 - (prefs.bgDim ?? 0.6) : 1; window.cubeBg = bgLevel; document.getElementById('bg').style.opacity = bgLevel;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -434,7 +456,7 @@ function layout(force, keepArg) {                                               
 function setShape(name) {
   if (!SHAPES[name]) name = 'cube'; if (fullFace >= 0) toggleFull();
   const keep = selFace >= 0 ? selFace : frontFace();                    // which session you're on, worked out on the OLD shape
-  SH = buildShape(name); layout(true, keep);
+  SH = buildShape(name); document.documentElement.style.setProperty('--k', SH.k); document.body.classList.toggle('overview', name !== 'cube'); layout(true, keep);
 }
 function bringHere(p) {                                                  // a parked session takes the place of the face in front of you
   const L = [...shellsFor(SH.name)], here = cur(), k = L.indexOf(here); if (k < 0) return;
@@ -525,8 +547,9 @@ let bgPrev = 0;
 function bgLoop(now) { if (!document.hidden && !document.body.classList.contains('gl') && now - bgPrev > 32 && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
 addEventListener('resize', sizeBg);
 function assignColor(g) {
-  const i = cur(); if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
-  savePrefs(); paint(); layout(); renderAttn(); toast(prefs.colors[i] ? `face ${i + 1} → colour ${g}` : `face ${i + 1}: colour cleared`);
+  const i = cur(), was = prefs.colors[i]; if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
+  savePrefs(); paint(); layout(); renderAttn(); const msg = prefs.colors[i] ? `face ${i + 1} → colour ${g}` : `face ${i + 1}: colour cleared`;
+  if (prefs.cluster) toastUndo(msg + ' (faces regrouped)', () => { if (was) prefs.colors[i] = was; else delete prefs.colors[i]; savePrefs(); paint(); layout(); renderAttn(); }); else toast(msg);
 }
 function cycleColor(g) {                                                 // next face with colour g after the one you're on
   const list = faces.map(f => f.i).filter(i => prefs.colors[i] === g); if (!list.length) { toast(`no face has colour ${g} yet`); return; }
@@ -548,12 +571,12 @@ const att = faces.map(() => ({ s: 'working', r: '', since: 0, dismissed: false }
 const waiting = i => att[i].s === 'needs' && !att[i].dismissed && (prefs.attnFinished || !att[i].r.startsWith('finished'));
 const attnq = document.getElementById('attnq');
 function renderAttn() {
-  faces.forEach(f => f.el.classList.toggle('attn', waiting(f.i)));
+  faces.forEach(f => { const w = waiting(f.i); f.el.classList.toggle('attn', w); f.hdr.lastChild.textContent = w ? '◆! ' + att[f.i].r : ''; });
   const here = fullFace >= 0 ? fullFace : selFace;
   const list = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
   attnq.replaceChildren(...(prefs.quiet ? [] : list.map(i => {
     const d = document.createElement('div'); d.className = 'aq'; d.dataset.f = i;
-    d.textContent = `Face ${i + 1} · ${faces[i].title || 'shell'} · ${att[i].r}`;
+    d.textContent = `◆! Face ${i + 1} · ${faces[i].title || 'shell'} · ${att[i].r}`;
     const x = document.createElement('span'); x.className = 'x'; x.textContent = '×'; x.title = 'dismiss (it comes back if it asks again)';
     x.onclick = e => { e.stopPropagation(); att[i].dismissed = true; renderAttn(); };
     d.appendChild(x); d.onclick = () => jumpTo(i); return d;
@@ -654,7 +677,7 @@ function offer(now) {
   const t = Math.min(1, (now - lift.t0) / lift.dur), was = lift.v; lift.v = lift.from + (lift.to - lift.from) * cam(t);
   if (lift.face >= 0) { const el = faces[lift.face].el; el.style.setProperty('--lift', (lift.v * H).toFixed(2) + 'px');
     el.style.transition = lift.v > 0 && lift.v < 1 ? 'none' : ''; }
-  if (lift.to === 1 && was < 1 && lift.v >= 1) clickSound(520, 0.18);  // seated: a soft low thunk
+  if (lift.to === 1 && was < 1 && lift.v >= 1) clickSound(520, 0.18, 'sndRise');  // seated: a soft low thunk
   if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) faces[lift.face].el.style.removeProperty('--lift'); lift.face = fr; }
   window.cubeLift = { face: lift.face, slot: lift.face >= 0 ? slotOf[lift.face] : -1, h: lift.v * H };
 }
@@ -785,7 +808,8 @@ function renderPrefs() {
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
   document.getElementById('p-glow').oninput = e => { prefs.glow = +e.target.value; document.documentElement.style.setProperty('--glow', prefs.glow); };
   document.getElementById('p-glow').onchange = savePrefs;
-  on('p-lowfx', t => { prefs.lowfx = t.checked; }); on('p-cluster', t => { prefs.cluster = t.checked; });
+  on('p-lowfx', t => { prefs.lowfx = t.checked; }); document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
+    toastUndo(prefs.cluster ? 'faces grouped by colour' : 'faces back in their own places', () => { prefs.cluster = was; savePrefs(); applyPrefs(); }); };
   on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; });
   on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
 }
@@ -854,8 +878,15 @@ function physics(dt, spinV, tiltV, pushing) {
   } else if (!held) settled = false;
 }
 let actx = null;
-function clickSound(freq = 2400, vol = 0.25) {                          // a soft mechanical tick when a screen locks in (⚙ to mute); low = the offering's thunk
-  if (!prefs.click) return;
+function chime() {                                                       // (Riven 7) a restrained two-note chime the FIRST time a session asks for Chris
+  if (prefs.sndAttn === false) return;
+  try { actx = actx || new AudioContext(); const t = actx.currentTime;
+    [[660, 0], [880, 0.13]].forEach(([f, d]) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.08, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35);
+      o.connect(g); g.connect(actx.destination); o.start(t + d); o.stop(t + d + 0.4); }); } catch (e) {}
+}
+function clickSound(freq = 2400, vol = 0.25, key = 'click') {          // a soft mechanical tick when a screen locks in; low = the offering's thunk (each switchable in ⚙)
+  if (prefs[key] === false) return;
   try { actx = actx || new AudioContext(); const t = actx.currentTime, n = actx.createBufferSource(), b = actx.createBuffer(1, 800, actx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 6);
     const f = actx.createBiquadFilter(), g = actx.createGain(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 3; g.gain.value = vol;
@@ -879,7 +910,11 @@ function renderMotion() {
      sl('bounce', 'overshoot / bounce', 0, 1, 0.05), sl('notch', 'detent while rolling', 0, 0.6, 0.02), sl('hyst', 'hysteresis °', 0, 20, 1)].join('<br>') +
     `<br>offer the face: rise <input type="range" id="p-offer" min="0" max="40" step="2" value="${prefs.offer ?? 20}"> <span>${prefs.offer ?? 20}%</span>` +
     ` after <input type="range" id="p-offerd" min="0.3" max="4" step="0.1" value="${prefs.offerDelay ?? 1}"> <span>${prefs.offerDelay ?? 1}s</span> (0% = off)` +
-    `<br><label><input type="checkbox" id="p-click" ${prefs.click ? 'checked' : ''}> click when a screen locks</label> · <a href="#" id="mo-reset">reset this shape</a>`;
+    `<br>sounds: <label><input type="checkbox" id="p-click" ${prefs.click !== false ? 'checked' : ''}> click when a screen locks</label>` +
+    ` <label><input type="checkbox" id="p-sndRise" ${prefs.sndRise !== false ? 'checked' : ''}> thunk when a face rises</label>` +
+    ` <label><input type="checkbox" id="p-sndAttn" ${prefs.sndAttn !== false ? 'checked' : ''}> chime when a session asks for you</label>` +
+    `<br>the space steps back <input type="range" id="p-bgdim" min="0" max="0.9" step="0.1" value="${prefs.bgDim ?? 0.6}"> <span>${Math.round((prefs.bgDim ?? 0.6) * 100)}%</span> while something waits or you're in a face` +
+    `<br><a href="#" id="mo-reset">reset this shape</a>`;
   el.querySelectorAll('[data-mo]').forEach(r => { r.oninput = () => { const mm = (prefs.motion = prefs.motion || {})[SH.name] = Object.assign({}, (prefs.motion || {})[SH.name] || {});
     mm[r.dataset.mo] = +r.value; r.nextElementSibling.textContent = r.value; }; r.onchange = savePrefs; });
   document.getElementById('p-oneaxis').onchange = e => { prefs.oneAxis = e.target.checked; savePrefs(); };
@@ -888,6 +923,8 @@ function renderMotion() {
   el.querySelectorAll('[name=hsrc]').forEach(r => { r.onchange = () => { prefs.handSrc = r.value; savePrefs(); }; });
   el.querySelectorAll('[data-flip]').forEach(c => { c.onchange = () => { prefs.flip = Object.assign({}, prefs.flip || {}, { [c.dataset.flip]: c.checked }); savePrefs(); }; });
   document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
+  for (const k of ['sndRise', 'sndAttn']) document.getElementById('p-' + k).onchange = e => { prefs[k] = e.target.checked; savePrefs(); };
+  { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
   for (const [id, k] of [['p-offer', 'offer'], ['p-offerd', 'offerDelay']]) { const r = document.getElementById(id);
     r.oninput = () => { prefs[k] = +r.value; r.nextElementSibling.textContent = r.value + (k === 'offer' ? '%' : 's'); }; r.onchange = savePrefs; }
   document.getElementById('mo-reset').onclick = e => { e.preventDefault(); if (prefs.motion) delete prefs.motion[SH.name]; savePrefs(); renderMotion(); };
