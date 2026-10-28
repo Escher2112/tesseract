@@ -777,7 +777,10 @@ click a face to select it
 COLOURS + ATTENTION: settings below`;
 document.getElementById('helptext').textContent = HELP;
 document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
-document.getElementById('gear').onclick = () => help.classList.toggle('on');
+document.getElementById('gear').onclick = () => {                    // (08:49 Chris: settings were behind a full-screen browser face)
+  help.classList.toggle('on');
+  if (fullFace >= 0 && isWeb(fullFace)) { if (help.classList.contains('on')) NATIVE && NATIVE.postMessage({ op: 'hide', face: fullFace }); else showWeb(fullFace); }
+};
 faces.forEach(label);                                                  // after fullFace exists (label reads it)
 sizeBg(); requestAnimationFrame(bgLoop);
 applyPrefs();                                                          // defaults until the server sends the saved prefs
