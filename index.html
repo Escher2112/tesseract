@@ -1081,6 +1081,9 @@ function showDrum(on) {
 function drumFrame(now) {
   if (!drumOpen()) return; const dt = Math.min(0.05, (now - drum.last) / 1000); drum.last = now;
   const h = handInput(false, true), m = mo(); let u = shape(h.iy, m); u = -u + (drum.kick || 0); drum.kick = 0;   // push forward = the next one rolls up
+  // 14:23 Chris: "pushing in on it (I scrolled to github) didn't go there". A push always leaks some tilt before it counts as a push, and
+  // that rolled the drum a notch. Now the moment you start pushing in, the drum freezes on the row in the frame, and that's where you go.
+  if (Math.abs(sbT[2]) > 60) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
   let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
   if (drum.p < 0 || drum.p > hi) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
   if (crossed) clickSound(2600, 0.16);
@@ -1091,7 +1094,7 @@ function drumFrame(now) {
     el.style.setProperty('--shade', Math.min(0.85, 1 - Math.cos(Math.min(Math.PI / 2, Math.abs(b) * al * Math.PI / 180)) * 0.95 + 0.05).toFixed(3)); el.classList.toggle('front', k === fi); });
   drum.raf = requestAnimationFrame(drumFrame);
 }
-function drumGo() { const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
+function drumGo() { if (drum.lock != null) { drum.p = drum.lock; drum.lock = null; } const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
 drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY * 0.012; }, { passive: false });
 drumEl.addEventListener('mousedown', e => { if (drum.gl) { if (e.target.closest('.dstage3d')) drumGo(); else showDrum(false); return; } const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
   if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });

@@ -314,7 +314,7 @@ function loop(now) {
 // edge like the body), the facet in front shows row round(p) and the others the rows around it, retextured as they come round, so any
 // number of sessions fits one drum of a fixed size. Ends: turned chrome flanges + hex bolts that turn with it, a fixed chrome bearing
 // (outer race, dark seal, hub, axle stub) that doesn't. Same MATERIALS data as the body: obsidian is the body's obsidian.
-const DRUM = { N: 10, h: 88, ch: 3.5 };
+const DRUM = { N: 10, h: 88, ch: 7 };   // ch = how far each rounded edge reaches into the facets (14:23: "just a touch" rounder)
 let dR = null;
 function drumRowTex(row, w, h) {
   const c = document.createElement('canvas'), H = 192, Wc = Math.round(H * w / h); c.width = Wc; c.height = H; const x = c.getContext('2d');
@@ -342,9 +342,14 @@ function drumBuild(W) {
     const P = [[-W / 2, a], [W / 2, a], [W / 2, b], [-W / 2, b]].map(([xx, v]) => new THREE.Vector3(xx, v.y, v.z)), Nn = [na, na, nb, nb];
     let idx = [0, 1, 2, 0, 2, 3]; const fn = P[1].clone().sub(P[0]).cross(P[2].clone().sub(P[0])); if (fn.dot(na.clone().add(nb)) < 0) idx = [0, 2, 1, 0, 3, 2];
     idx.forEach(i => { pos.push(P[i].x, P[i].y, P[i].z); nor.push(Nn[i].x, Nn[i].y, Nn[i].z); }); };
+  // 14:23 Chris: "round the edges between faces, just a touch". Each edge is a real fillet now: a curve of FILLET steps from facet k into
+  // facet k+1 (a quadratic through the old corner), its normal turning smoothly from n_k to n_k+1, so the light rolls round it.
+  const FILLET = 6;
   for (let k = 0; k < N; k++) { const A = cK(k - 1), B = cK(k), d = B.clone().sub(A).normalize(), a = A.clone().addScaledVector(d, ch), b = B.clone().addScaledVector(d, -ch);
     quad(a, b, nK(k), nK(k));
-    const B2 = cK(k), d2 = cK(k + 1).clone().sub(B2).normalize(), a2 = B2.clone().addScaledVector(d2, ch); quad(b, a2, nK(k), nK(k + 1)); }
+    const d2 = cK(k + 1).clone().sub(B).normalize(), a2 = B.clone().addScaledVector(d2, ch);
+    const at = t => b.clone().multiplyScalar((1 - t) * (1 - t)).addScaledVector(B, 2 * t * (1 - t)).addScaledVector(a2, t * t), nAt = t => nK(k).lerp(nK(k + 1), t).normalize();
+    for (let j = 0; j < FILLET; j++) quad(at(j / FILLET), at((j + 1) / FILLET), nAt(j / FILLET), nAt((j + 1) / FILLET)); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   // obsidian reflects a DARK room (black with a key, a cool fill and a rim), so flat glass reads black with highlights sliding over it,
   // not a grey mirror of the bright studio; the chrome keeps the bright room (D.env)
