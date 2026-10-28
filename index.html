@@ -430,7 +430,7 @@ function sbButtons(mask) {
 // physics() frame replaced it with the nearest screen and nothing moved. Now it claims the target like goTo does, and leaves full
 // screen first (waiting for the zoom-out, the way openFace does). Covered by tests/maths.test.mjs ("home lands on face 1").
 function goHome() {
-  const go = () => { Qt = [1, 0, 0, 0]; W = [0, 0, 0]; cmdTarget = true; settled = false; present(Qt); select(0); };
+  const go = () => { W = [0, 0, 0]; settled = false; goTo(0); select(0); };   // face 1 WHEREVER it sits (13:49: colour groups move faces between slots, so the identity pose showed face 3)
   if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
   else go();
 }
