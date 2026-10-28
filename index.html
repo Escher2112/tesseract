@@ -5,10 +5,16 @@
      on/off · button 3 = back to face 1. PowerMate: turn = step faces · tap = full screen on/off.
      Keys (Ctrl+Option): arrows = turn · Return = full screen · 1-6 = jump to a face. Clicking a face selects it. -->
 <link rel="stylesheet" href="/vendor/xterm.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
 <style>
   :root { --glow: 1; --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
   html, body { margin: 0; height: 100%; background: #050507; overflow: hidden; font: 12px Menlo, Monaco, monospace; color: #b9adf0; }
   #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  /* 2026-10-28 real renderer (gl.js): a WebGL canvas draws the solid's body (materials, lights, chamfers) under the DOM screens. The
+     motes canvas becomes its background texture, and the CSS-faked metal (bezel + triangles) steps aside. */
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  body.gl #bg { visibility: hidden; }  body.gl .bezel, body.gl .tri { display: none; }
+  body.gl .inner { inset: 24px; }                                  /* a wider frame so the material shows around each screen */
   #scene { z-index: 1; }
   #scene { position: fixed; inset: 0; perspective: 2200px; display: flex; align-items: center; justify-content: center; }
   #cube { width: var(--S); height: var(--S); position: relative; transform-style: preserve-3d; }
@@ -344,7 +350,8 @@ function frame(now) {
   if (analog) physics(Math.min(0.05, k / 60), spinV, tiltV, Math.abs(z) > 120 && zWins); else Q = qSlerp(Q, Qt, ease);
   const shown = qMul(qMul(qAxis(0, 1, 0, leanY), qAxis(1, 0, 0, -leanP)), Q);
   cube.style.transform = `translateZ(${-SH.r}px) ` + qMatrix(shown).toString();
-  light(shown);
+  window.cubeShown = shown; window.cubeSH = SH; window.cubePrefs = prefs;       // handed to gl.js (the WebGL body) every frame
+  if (!document.body.classList.contains('gl')) light(shown);
   const fr = frontFace(); faces.forEach((f, j) => f.el.classList.toggle('front', j === fr));
   requestAnimationFrame(frame);
 }
@@ -362,7 +369,9 @@ let prefs = JSON.parse(JSON.stringify(DEF));
 function loadPrefs(p) { prefs = Object.assign(JSON.parse(JSON.stringify(DEF)), p, { buttons: Object.assign({}, DEF.buttons, p.buttons || {}) }); applyPrefs(); }
 function savePrefs() { post('/config?prefs=1', JSON.stringify(prefs)); }
 function applyPrefs() { document.body.classList.toggle('lowfx', !!prefs.lowfx); document.documentElement.style.setProperty('--glow', prefs.glow);
-  if (SH.name !== prefs.shape) setShape(prefs.shape); paint(); layout(); tintTris(); seedMotes(); bgPrev = 0; renderPrefs(); renderMotion(); renderAttn(); }
+  if (SH.name !== prefs.shape) setShape(prefs.shape); paint(); layout(); tintTris(); seedMotes(); bgPrev = 0; renderPrefs(); renderMotion(); renderAttn();
+  window.cubePrefs = prefs; if (window.GL) window.GL.apply(); }
+addEventListener('gl-ready', () => { window.cubePrefs = prefs; window.GL.apply(); renderPrefs(); });
 const cur = () => (fullFace >= 0 ? fullFace : frontFace());              // the face you are looking at (the same rule full screen uses)
 function paint() { if (typeof tintTris === 'function' && triEls) tintTris();
   faces.forEach(f => { const g = prefs.colors[f.i]; f.el.classList.toggle('colored', !!g); if (g) f.el.style.setProperty('--gc', prefs.palette[g - 1]); });
@@ -534,6 +543,10 @@ function renderPrefs() {
   el.innerHTML = `<b>SHAPE</b><br>` + Object.entries(SHAPES).map(([k, v]) => `<label><input type="radio" name="shape" value="${k}" ${prefs.shape === k ? 'checked' : ''}> ${v.label}</label>`).join('<br>') +
     `<br><i>Only the cube shows its screens at full size; on the others, go full screen to work.</i>` +
     (parked.length ? `<br>parked (still running): ` + parked.map(f => `<a href="#" data-bring="${f.i}">${f.i + 1} · ${(f.title || 'shell').slice(0, 24)}</a>`).join(' · ') + ` (click = put it on the face in front)` : '') +
+    (window.GL ? `<br><b>MATERIAL</b> <select id="p-mat">${Object.entries(window.GL.MATERIALS).map(([k, m]) => `<option value="${k}" ${(prefs.material || 'brushed_steel') === k ? 'selected' : ''}>${m.label}</option>`).join('')}</select>` +
+      ` light <select id="p-light">${Object.keys(window.GL.LIGHTS).map(k => `<option ${(prefs.light || 'room') === k ? 'selected' : ''}>${k}</option>`).join('')}</select>` +
+      `<br><label><input type="checkbox" id="p-bloom" ${prefs.bloom !== false ? 'checked' : ''}> glow on highlights (bloom)</label>` +
+      ` <label><input type="checkbox" id="p-gl" ${prefs.gl !== false ? 'checked' : ''}> real 3D materials (WebGL)</label>` : '') +
     `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
     ` motes <input type="range" id="p-motes" min="0" max="2" step="0.25" value="${prefs.motes}"><br>` +
     `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
@@ -552,6 +565,8 @@ function renderPrefs() {
   el.querySelectorAll('[name=shape]').forEach(r => { r.onchange = () => { prefs.shape = r.value; savePrefs(); applyPrefs(); }; });
   el.querySelectorAll('[data-bring]').forEach(a => { a.onclick = e => { e.preventDefault(); bringHere(+a.dataset.bring); }; });
   document.getElementById('p-theme').onchange = e => { prefs.theme = e.target.value; savePrefs(); applyPrefs(); };
+  const glSet = (id, k, v) => { const el2 = document.getElementById(id); if (el2) el2.onchange = e => { prefs[k] = v(e.target); savePrefs(); window.cubePrefs = prefs; window.GL && window.GL.apply(); }; };
+  glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked);
   document.getElementById('p-motes').onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); };
   el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
@@ -692,4 +707,5 @@ faces.forEach(f => ro.observe(f.host));
 addEventListener('focus', () => faces.forEach(refit));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) faces.forEach(refit); });
 if (!TerminalCls || !FitCls) help.textContent = 'xterm.js did not load (vendor files)';
-</script></body></html>
+</script>
+<script type="module" src="/gl.js"></script></body></html>

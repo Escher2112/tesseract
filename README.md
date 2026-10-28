@@ -96,6 +96,15 @@ With a 3D mouse, ⚙ → MOTION picks how the solid moves (saved per shape):
 Sliders: sensitivity, dead zone, curve (fine control near the centre), inertia, damping, snap strength, overshoot/bounce, detent while
 rolling, hysteresis. Keyboard, knob and jump moves use the same spring.
 
+## Materials and light (real 3D)
+The solid itself is drawn with WebGL ([three.js](https://threejs.org), MIT, bundled in `vendor/three/` so it works offline): real
+geometry with chamfered edges, physically based materials with procedural texture and bump maps, an environment for reflections,
+key/fill/rim lights and optional bloom. The terminals stay real, crisp, typeable terminals set into the faces. ⚙ → MATERIAL:
+brushed steel, polished chrome, polished gold, satin brass, brushed copper, dark iron, oxidized bronze, white marble, black onyx,
+obsidian, jade, translucent jade, translucent brass; light: a neutral studio room or the studio / dramatic / warm / cool / rim-only
+moods. Untick "real 3D materials" for the lighter CSS look. Materials and lights are plain data (standard metallic-roughness PBR, no
+custom shaders), so a native Metal / Vulkan version can reuse them as they are.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).
@@ -120,4 +129,4 @@ Enterprise), including the newer one-message report format. **Only the Spaceball
 If yours doesn't work, or the axes or buttons are mixed up, please open an issue with the model name: a fix is usually a line or two.
 
 ## License
-MIT (see LICENSE). xterm.js is MIT too (vendor/LICENSE-xterm.txt).
+MIT (see LICENSE). xterm.js and three.js are MIT too (vendor/LICENSE-xterm.txt, vendor/three/LICENSE).

@@ -184,7 +184,7 @@ def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
 PAGE_BUTTONS = {"jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
-PREF_KEYS = {"colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright"}
+PREF_KEYS = {"material", "bloom", "gl", "light", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
@@ -252,8 +252,13 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path); q = parse_qs(u.query)
         if self.headers.get("Host", "") not in HOSTS: return self.deny()
         if u.path == "/": return self.file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
-        if u.path in ("/vendor/xterm.js", "/vendor/addon-fit.js"): return self.file(HERE + u.path, "text/javascript")
-        if u.path == "/vendor/xterm.css": return self.file(HERE + u.path, "text/css")
+        if u.path == "/gl.js": return self.file(os.path.join(HERE, "gl.js"), "text/javascript")
+        if u.path.startswith("/vendor/"):                              # anything under vendor/ (xterm, three.js + its addons), never outside it
+            real, root = os.path.realpath(os.path.join(HERE, u.path.lstrip("/"))), os.path.realpath(os.path.join(HERE, "vendor"))
+            ext = os.path.splitext(real)[1]
+            if real.startswith(root + os.sep) and os.path.isfile(real) and ext in (".js", ".css"):
+                return self.file(real, "text/javascript" if ext == ".js" else "text/css")
+            return self.deny(404)
         if u.path != "/stream": return self.deny(404)
         if not self.guard(q): return self.deny()
         self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.send_header("Cache-Control", "no-cache")
