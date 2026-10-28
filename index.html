@@ -565,7 +565,7 @@ setTimeout(() => faces.forEach(refit), 300);
 // saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
 // pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
 const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
-  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12, forward: 5 },   // Chris's Spaceball layout (11:23; B = quick reference 13:50; 5 = forward 13:56)
+  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 5, quickref: 11, back: 12, forward: 10 },   // Chris's Spaceball layout (11:23; B = quick reference 13:50; 13:58 the right-hand column A/B/C top→bottom = history forward / card / history back, jump → 5)
   glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15,
   shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, flip: {},   /* no handSrc default: it follows the device (LAYOUTS[pid].roll) unless he picks one (11:2x fix) */ cubeClassic: false };
 let prefs = JSON.parse(JSON.stringify(DEF));
@@ -947,7 +947,7 @@ const L_TWO = { 1: 'Left', 2: 'Right' };
 const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
 const LAYOUTS = {
   c621: { model: 'Spaceball 5000', roll: 'tilt', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
-          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12, forward: 5 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
+          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 5, quickref: 11, back: 12, forward: 10 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
   c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c62f: { model: 'SpaceMouse Wireless (receiver)', labels: L_TWO, preset: { full: 1, jump: 2 } }, c63a: { model: 'SpaceMouse Wireless (Bluetooth)', labels: L_TWO, preset: { full: 1, jump: 2 } },
