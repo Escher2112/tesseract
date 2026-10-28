@@ -324,14 +324,14 @@ function frame(now) {
   if (z < -PRESS && zArmed) { zArmed = false; pressDown(); } else if (z > PRESS && zArmed) { zArmed = false; pullUp(); }
   else if (Math.abs(z) < RELEASE) zArmed = true;
   const spinV = Math.abs(z) > 120 ? 0 : -sbR[2], tiltV = Math.abs(z) > 120 ? 0 : sbR[0];   // pushing leaks twist: no turning mid-push
-  const analog = prefs.nav === 'analog' && fullFace < 0;
+  const analog = navMode() !== 'step' && fullFace < 0;
   if (!analog) {
     if (Math.abs(spinV) >= Math.abs(tiltV)) { stepper('y', spinV, now, s => turn(s, 0)); armed.p = true; }
     else { stepper('p', tiltV, now, s => turn(0, s)); armed.y = true; }
   }
   const leanY = analog ? 0 : Math.max(-1, Math.min(1, spinV / 350)) * 10, leanP = analog ? 0 : Math.max(-1, Math.min(1, tiltV / 350)) * 8;   // lean the way it will step
   const ease = 1 - Math.pow(0.9, k);                                   // slow, calm settle (about half a second)
-  if (analog) physics(Math.min(0.05, k / 60), spinV, tiltV); else Q = qSlerp(Q, Qt, ease);
+  if (analog) physics(Math.min(0.05, k / 60), spinV, tiltV, Math.abs(z) > 120); else Q = qSlerp(Q, Qt, ease);
   const shown = qMul(qMul(qAxis(0, 1, 0, leanY), qAxis(1, 0, 0, -leanP)), Q);
   cube.style.transform = `translateZ(${-SH.r}px) ` + qMatrix(shown).toString();
   light(shown);
@@ -339,6 +339,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+setInterval(() => { const b = document.getElementById('ballread'); if (b && help.classList.contains('on')) b.textContent = ballRead || '—'; }, 120);
 setTimeout(() => faces.forEach(refit), 300);
 // ---------- Priority 1: colours and groups (Chris + Riven's spec, 2026-10-28). Colours belong to the FACE (= its shell and session),
 // saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
@@ -346,7 +347,7 @@ setTimeout(() => faces.forEach(refit), 300);
 const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
   buttons: { color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 },
   glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15,
-  shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'analog', motion: {}, click: true };
+  shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, handSrc: 'slide', flip: {}, cubeClassic: false };
 let prefs = JSON.parse(JSON.stringify(DEF));
 function loadPrefs(p) { prefs = Object.assign(JSON.parse(JSON.stringify(DEF)), p, { buttons: Object.assign({}, DEF.buttons, p.buttons || {}) }); applyPrefs(); }
 function savePrefs() { post('/config?prefs=1', JSON.stringify(prefs)); }
@@ -536,7 +537,7 @@ function renderPrefs() {
 const MOTION_DEF = { sens: 1, dead: 25, curve: 0.6, inertia: 1, damping: 3.5, snap: 45, bounce: 0.3, notch: 0.08, hyst: 6 };   // tuned 07:4x: a medium push must carry past the next detent
 const MOTION_SHAPE = { cube: {}, cuboct: { sens: 0.9 }, rhombi: { sens: 0.7, notch: 0.1, hyst: 8 } };
 const mo = () => Object.assign({}, MOTION_DEF, MOTION_SHAPE[SH.name] || {}, (prefs.motion || {})[SH.name] || {});
-let W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0;
+let W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0, ballRead = '';
 const qConj = q => [q[0], -q[1], -q[2], -q[3]];
 function rotVecQ(v) { const a = Math.hypot(...v); if (a < 1e-9) return [1, 0, 0, 0]; const s = Math.sin(a / 2) / a; return [Math.cos(a / 2), v[0] * s, v[1] * s, v[2] * s]; }
 function errVec(from, to) { let e = qMul(to, qConj(from)); if (e[0] < 0) e = e.map(v => -v);   // the rotation (axis × angle, radians) that takes from → to
@@ -552,13 +553,34 @@ function nearestTarget(q, hystDeg) {                                     // the 
   return { face: best, q: alignQ(qNorm(qMul(qAxis(ax[0], ax[1], ax[2], deg), q))) };
 }
 function shape(v, m) { const a = Math.abs(v); if (a <= m.dead) return 0; const x = Math.min(1, (a - m.dead) / (350 - m.dead)); return Math.sign(v) * Math.pow(x, 1 + m.curve); }
-function physics(dt, spinV, tiltV) {
-  const m = mo(), sy = shape(spinV, m), sx = shape(tiltV, m), held = sy !== 0 || sx !== 0;
+// 07:45 Chris: "twisting the ball should rotate the face you are looking at — spinning the solid in your hand… side to side and up and
+// down roll it to new faces in those directions, plus the analog angles in between (up and left is 45)". HAND mode: twist = spin about
+// your line of sight; push (slide, or tilt: ⚙) = roll TOWARD that direction at whatever angle you push. The torque for "bring the face
+// in screen direction d to me" is about d × (toward you); push strength is shaped on the push's LENGTH, so 45° stays 45°.
+// Chris 07:45: "classical control for the cube if the user wants… as a toggle for the cube only". Every shape uses HAND; the cube alone
+// can switch back to the original one-push-one-face stepping. (The twist/tilt "analog" mode of 07:35 is kept in code, not offered.)
+const navMode = () => (SH.name === 'cube' && prefs.cubeClassic ? 'step' : 'hand');
+function handInput(pushing) {
+  const f = prefs.flip || {}, tilt = prefs.handSrc === 'tilt';
+  let ix = tilt ? -sbR[1] : sbT[0], iy = tilt ? sbR[0] : -sbT[1], tw = -sbR[2];       // screen right, screen up, clockwise twist (signs: ⚙ flips)
+  if (f.x) ix = -ix; if (f.y) iy = -iy; if (f.t) tw = -tw;
+  if (pushing) { ix = 0; iy = 0; tw = 0; }                                // pushing down / pulling up = select / full screen, never a roll
+  return { ix, iy, tw };
+}
+function physics(dt, spinV, tiltV, pushing) {
+  const m = mo(); let sx, sy, sz = 0;
+  if (navMode() === 'hand') {
+    const h = handInput(pushing), len = Math.hypot(h.ix, h.iy), mag = shape(len, m), tw = shape(h.tw, m);
+    const dx = len ? h.ix / len : 0, dyUp = len ? h.iy / len : 0;            // the push's direction on screen (y up)
+    sx = -dyUp * mag; sy = -dx * mag; sz = tw;                                // torque about screen x / y / z (see the note above)
+    ballRead = `push right ${h.ix.toFixed(0)} · up ${h.iy.toFixed(0)} · twist ${h.tw.toFixed(0)}`;
+  } else { sy = shape(spinV, m); sx = -shape(tiltV, m); ballRead = `twist ${spinV.toFixed(0)} · tilt ${tiltV.toFixed(0)}`; }
+  const held = sx !== 0 || sy !== 0 || sz !== 0;
   if (held) { cmdTarget = false; settled = false; }
   if (!cmdTarget) { const t = nearestTarget(Q, m.hyst); if (t.face !== tgtFace) { tgtFace = t.face; Qt = t.q; present(Qt); } else Qt = t.q; }
   const I = Math.max(0.05, m.inertia), K = m.snap * (held ? m.notch : 1);
   const zeta = 1 - 0.75 * Math.min(1, Math.max(0, m.bounce)), C = held ? m.damping : Math.max(m.damping * 0.5, 2 * zeta * Math.sqrt(K * I));
-  const tau = [-20 * m.sens * sx, 20 * m.sens * sy, 0];                  // same directions as the step pushes (tilt = over the top, twist = side)
+  const tau = [20 * m.sens * sx, 20 * m.sens * sy, 28 * m.sens * sz];   // twist a bit stronger: a quarter-turn detent is 45° away, a roll's is ~22°   // analog: tilt = over the top, twist = side · hand: see handInput
   const n = Math.max(1, Math.ceil(dt / 0.004)), h = dt / n;              // small substeps: stable at the stiffest settings and on a slow frame
   let e = [0, 0, 0];
   for (let s = 0; s < n; s++) { e = errVec(Q, Qt);
@@ -580,15 +602,22 @@ function clickSound() {                                                  // a so
 function renderMotion() {
   const el = document.getElementById('motion'); if (!el) return; const m = mo();
   const sl = (k, label, min, max, step) => `${label} <input type="range" data-mo="${k}" min="${min}" max="${max}" step="${step}" value="${m[k]}"> <span>${m[k]}</span>`;
-  el.innerHTML = `<b>MOTION</b> (${SH.name}; saved per shape) <label><input type="radio" name="nav" value="analog" ${prefs.nav === 'analog' ? 'checked' : ''}> analog + detents</label>` +
-    ` <label><input type="radio" name="nav" value="step" ${prefs.nav !== 'analog' ? 'checked' : ''}> one push = one screen</label><br>` +
+  const nv = (v, t) => `<label><input type="radio" name="nav" value="${v}" ${prefs.nav === v ? 'checked' : ''}> ${t}</label>`, fl = prefs.flip || {};
+  el.innerHTML = `<b>MOTION</b> (${SH.name}; sliders saved per shape)<br>in your hand: twist spins it, push rolls toward where you push` +
+    (SH.name === 'cube' ? `<br><label><input type="checkbox" id="p-classic" ${prefs.cubeClassic ? 'checked' : ''}> classic control (cube only): one push = one face</label>` : '') +
+    `<br>roll with: <label><input type="radio" name="hsrc" value="slide" ${prefs.handSrc !== 'tilt' ? 'checked' : ''}> slide the ball</label>` +
+    ` <label><input type="radio" name="hsrc" value="tilt" ${prefs.handSrc === 'tilt' ? 'checked' : ''}> tilt the ball</label>` +
+    `<br>flip: <label><input type="checkbox" data-flip="x" ${fl.x ? 'checked' : ''}> left/right</label> <label><input type="checkbox" data-flip="y" ${fl.y ? 'checked' : ''}> up/down</label>` +
+    ` <label><input type="checkbox" data-flip="t" ${fl.t ? 'checked' : ''}> twist</label><br>ball now: <span id="ballread">—</span><br>` +
     [sl('sens', 'sensitivity', 0.1, 3, 0.05), sl('dead', 'dead zone', 0, 150, 5), sl('curve', 'curve (fine control)', 0, 2, 0.1),
      sl('inertia', 'inertia', 0.2, 4, 0.1), sl('damping', 'damping', 0.5, 10, 0.25), sl('snap', 'snap strength', 5, 150, 5),
      sl('bounce', 'overshoot / bounce', 0, 1, 0.05), sl('notch', 'detent while rolling', 0, 0.6, 0.02), sl('hyst', 'hysteresis °', 0, 20, 1)].join('<br>') +
     `<br><label><input type="checkbox" id="p-click" ${prefs.click ? 'checked' : ''}> click when a screen locks</label> · <a href="#" id="mo-reset">reset this shape</a>`;
   el.querySelectorAll('[data-mo]').forEach(r => { r.oninput = () => { const mm = (prefs.motion = prefs.motion || {})[SH.name] = Object.assign({}, (prefs.motion || {})[SH.name] || {});
     mm[r.dataset.mo] = +r.value; r.nextElementSibling.textContent = r.value; }; r.onchange = savePrefs; });
-  el.querySelectorAll('[name=nav]').forEach(r => { r.onchange = () => { prefs.nav = r.value; W = [0, 0, 0]; cmdTarget = true; savePrefs(); }; });
+  const cc = document.getElementById('p-classic'); if (cc) cc.onchange = () => { prefs.cubeClassic = cc.checked; W = [0, 0, 0]; cmdTarget = true; savePrefs(); };
+  el.querySelectorAll('[name=hsrc]').forEach(r => { r.onchange = () => { prefs.handSrc = r.value; savePrefs(); }; });
+  el.querySelectorAll('[data-flip]').forEach(c => { c.onchange = () => { prefs.flip = Object.assign({}, prefs.flip || {}, { [c.dataset.flip]: c.checked }); savePrefs(); }; });
   document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
   document.getElementById('mo-reset').onclick = e => { e.preventDefault(); if (prefs.motion) delete prefs.motion[SH.name]; savePrefs(); renderMotion(); };
 }

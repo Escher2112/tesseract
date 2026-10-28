@@ -87,10 +87,12 @@ shape has no room for are **parked** (still running), listed in ⚙, and one cli
 
 ## Motion
 With a 3D mouse, ⚙ → MOTION picks how the solid moves (saved per shape):
-- **analog + detents** (default): twist or tilt and the solid rolls freely in any direction, with weight (inertia) and friction (damping).
+- **in your hand** (default, every shape): **twist** the ball and the solid spins around the face you're looking at; **push** it any way
+  (right, up, up-left at 45°…) and it rolls toward that direction, bringing those faces to you, with weight (inertia) and friction (damping).
+  Roll with sliding or tilting the ball (⚙), with flip switches and a live readout of the ball to get the directions right.
   Each screen is a soft detent you push through; let go and a spring settles the nearest screen in front of you (adjustable overshoot),
   with hysteresis so it never flickers between two. Optional soft click when a screen locks.
-- **one push = one screen**: the original stepping.
+- **classic control** (cube only, ⚙): one push = one face, the original stepping.
 Sliders: sensitivity, dead zone, curve (fine control near the centre), inertia, damping, snap strength, overshoot/bounce, detent while
 rolling, hysteresis. Keyboard, knob and jump moves use the same spring.
 
