@@ -100,7 +100,10 @@ function buildShape(name) {
     for (const [i, j] of [[0, 1], [1, 2], [0, 2]]) for (const si of [1, -1]) for (const sj of [1, -1]) { const n = [0, 0, 0]; n[i] = si; n[j] = sj; sq.push(V.norm(n)); }
     signs.forEach(([x, y, z]) => tri.push([[x * R, y, z], [x, y * R, z], [x, y, z * R]].map(v => V.mul(v, a / 2))));
   } else { a = S; r = S / 2; axes.forEach(n => sq.push(n)); }
-  const k = a / S, slots = sq.map(n => { const u = upFor(n); return { n, u, m: placeMatrix(n, u, V.mul(n, r), k) }; });
+  // cuboctahedron squares sit diamond-wise (corners on the axes: (±1,0,1),(0,±1,1)…), so their edges run 45° to the cube's (Chris 07:27:
+  // "terminal faces are turned 45 degrees to the actual square faces"). Turn the screen's up direction 45° inside its own plane.
+  const k = a / S, slots = sq.map(n => { const u0 = upFor(n), u = name === 'cuboct' ? V.norm(V.add(u0, V.cross(n, u0))) : u0;
+    return { n, u, m: placeMatrix(n, u, V.mul(n, r), k) }; });
   // cluster order: walk outward from the front face, always to the nearest unvisited face, so a run of slots sits side by side
   const order = [0], left = new Set(slots.map((_, i) => i).slice(1));
   while (left.size) { const last = slots[order[order.length - 1]].n; let best = -1, bd = -2;
@@ -111,6 +114,10 @@ function buildShape(name) {
   // invariants (fail loudly, never draw a wrong solid): every square sits at distance r, every triangle edge = a
   slots.forEach(sl => { if (Math.abs(V.dot(sl.n, sl.n) - 1) > 1e-9) throw new Error('bad square normal'); });
   tri.forEach(vs => [[0, 1], [1, 2], [2, 0]].forEach(([p, q]) => { const e = Math.hypot(...V.sub(vs[p], vs[q])); if (Math.abs(e - a) > 1e-6 * a) throw new Error(`${name}: triangle edge ${e} ≠ ${a}`); }));
+  // and every screen's four corners must land exactly on corners of the metal triangles (the check that would have caught the 45° turn)
+  if (tri.length) { const pts = tri.flat(); slots.forEach((sl, si) => { const y = V.mul(sl.u, -1), x = V.cross(y, sl.n), c = V.mul(sl.n, r);
+    for (const [p, q] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const cn = V.add(c, V.add(V.mul(x, p * a / 2), V.mul(y, q * a / 2)));
+      if (!pts.some(v => Math.hypot(...V.sub(v, cn)) < 1e-6 * a)) throw new Error(`${name}: screen ${si} corner misses the triangles`); } }); }
   console.log(`[shape] ${name}: ${slots.length} screens, ${tris.length} triangles, edge ${a.toFixed(1)}px, screen distance ${r.toFixed(1)}px, scale ${k.toFixed(3)}`);
   return { name, a, r, k, slots, tris, order };
 }
