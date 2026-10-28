@@ -154,7 +154,9 @@ function toggleFull() {
     const f = faces[fullFace]; f.el.appendChild(f.host); f.term.options.fontSize = 10; full.classList.remove('on');
     document.getElementById('scene').style.visibility = ''; fullFace = -1; refit(f); f.term.focus(); return;
   }
-  const i = selFace >= 0 ? selFace : frontFace(), f = faces[i]; select(i); fullFace = i;
+  // 2026-10-28 Chris: long press on a new face (Claude's trust prompt) opened some OTHER session: this used the last SELECTED face,
+  // which stays put while you roll. Full screen is always the face in front of you, and typing goes there.
+  const i = frontFace(), f = faces[i]; select(i); fullFace = i;
   full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); document.getElementById('scene').style.visibility = 'hidden';
   label(f); refit(f); f.term.focus();
 }
