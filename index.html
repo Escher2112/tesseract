@@ -121,13 +121,20 @@
   .face { --gc: var(--edge); --pc: #c9b8ff; }
   .face.colored .inner { border: 3px double var(--gc); box-shadow: 0 0 calc(16px * var(--glow)) var(--gc), inset 0 0 calc(6px * var(--glow)) var(--gc); }
   .face.colored.sel .inner { box-shadow: 0 0 calc(34px * var(--glow)) var(--gc), inset 0 0 calc(10px * var(--glow)) var(--gc); }
-  .face.attn .inner { animation: pulse 1.6s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { box-shadow: 0 0 4px var(--pc), 0 0 0 1px var(--pc); }
-                     50% { box-shadow: 0 0 calc(36px * var(--glow) + 10px) var(--pc), 0 0 0 4px var(--pc); } }
+  /* 16:05 PERF: the pulse animated BOX-SHADOW, which repaints the face every frame (measured: two waiting faces took the GPU process from
+     3% to 19% on a copy with his settings). Same look, cheap: the glow is drawn ONCE on a layer over the screen and only its OPACITY
+     pulses (the compositor fades it without repainting). Same 1.6 s breath; aging still whitens it through --pc. */
+  .face.attn .inner { box-shadow: 0 0 4px var(--pc), 0 0 0 1px var(--pc); }
+  .face.attn::after { content: ''; position: absolute; inset: 12px; border-radius: 4px; pointer-events: none; z-index: 2; will-change: opacity;
+                      box-shadow: 0 0 calc(36px * var(--glow) + 10px) var(--pc), 0 0 0 4px var(--pc); animation: pulse 1.6s steps(4) infinite; }
+  body.gl .face.attn::after { inset: 24px; }
+  /* stepped: 4 segments × 4 steps = 16 changes per 1.6 s breath (10 a second) instead of 60 — measured 13% → 7% (floor 3%); the extra
+     keyframes keep the eased in-and-out shape the smooth curve had */
+  @keyframes pulse { 0%, 100% { opacity: 0.12; } 25%, 75% { opacity: 0.5; } 50% { opacity: 1; } }
   .face.dim { opacity: .15; }
   body.lowfx .face.colored .inner, body.lowfx .face.colored.sel .inner { box-shadow: none; }
-  body.lowfx .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); }
-  @media (prefers-reduced-motion: reduce) { .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); } }
+  body.lowfx .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); }  body.lowfx .face.attn::after { display: none; }
+  @media (prefers-reduced-motion: reduce) { .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); } .face.attn::after { display: none; } }
   #full.colored { border: 3px double var(--gc); box-sizing: border-box; }
   #attnq { position: fixed; top: 6px; right: 40px; z-index: 8; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
@@ -233,6 +240,9 @@
           box-shadow: 0 0 0 2px #111, 0 0 0 4px #c9ccd3, 0 0 0 5px #45484f, 0 6px 18px rgb(0 0 0 / .7); }
   .dhub::after { content: ''; position: absolute; inset: 36%; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #f6f7f9, #7d818a 60%, #2b2d33); box-shadow: 0 0 0 1px #111; }
   .dhint { color: #7d818a; font-size: 11.5px; letter-spacing: .06em; }
+  /* the 3D drum stands on the bottom edge of the window (his sketch: the fixture rises out of the bottom of the screen); words above it */
+  #drum.g3 { justify-content: flex-end; gap: 10px; } #drum.g3 .dball { margin: 0 0 6px; }
+  .dball { color: #5d616a; font: 10.5px Menlo, monospace; letter-spacing: .02em; margin-top: -10px; }
   body.lowfx #drum.on { animation: none; } @media (prefers-reduced-motion: reduce) { #drum.on { animation: none; } }
   body.lowfx .qcard, body.lowfx .qname::after { animation: none; } body.lowfx .qname::after { display: none; }
   @media (prefers-reduced-motion: reduce) { .qcard, .qname::after { animation: none; } .qname::after { display: none; } }
@@ -483,8 +493,8 @@ function toggleFull() {
     if (web) { showWeb(i); setTimeout(() => { if (fullFace === i) fullSnap.style.display = 'none'; }, 120); }   // the live browser covers it first
   };
 }
-function pressDown() { if (drumOpen()) { drumGo(); return; } const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
-function pullUp() { if (drumOpen()) { showDrum(false); return; } if (fullFace >= 0) toggleFull(); }
+function pressDown() { if (drumOpen()) { drum.ev = 'push → go'; drumGo(); return; } const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
+function pullUp() { if (drumOpen()) { drum.ev = 'pull → close'; showDrum(false); return; } if (fullFace >= 0) toggleFull(); }
 function sbButtons(mask) {
   const pressed = mask & ~sbMask, released = sbMask & ~mask; sbMask = mask;
   const B = prefs.buttons, bit = n => (n ? 1 << (n - 1) : 0);
@@ -558,10 +568,13 @@ function frame(now) {
   // 22:28 Chris: side to side gets stuck. Only the STRONGER of spin/tilt may step (a twist always leaks a little tilt, which used to
   // park the cube on the top/bottom face, where side steps were locked out).
   const z = sbT[2];
+  if (ballHush && Math.max(...sbT.map(Math.abs), ...sbR.map(Math.abs)) < RELEASE) ballHush = false;   // the hand let go: the ball is live again
   // 07:55 Chris: "certain directions just fight you". A firm tilt LEAKS into push-down, which used to count as select and cut the roll
   // mid-move (the spring then yanked it back). In hand mode a push/pull only counts when it clearly beats every other axis.
   const other = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
-  const zWins = navMode() !== 'hand' || Math.abs(z) > 1.5 * other;
+  // (16:20) on the DRUM a push only has to beat the tilt, not by 50%: tilt leaks into z as a SMALL push (well under the tilt itself), and
+  // Chris rolls then pushes in one motion, so his push arrives with tilt still in it. The solid keeps the stricter 1.5×.
+  const zWins = navMode() !== 'hand' || Math.abs(z) > (drumOpen() ? 1.0 : 1.5) * other;
   if (zWins && z < -PRESS && zArmed) { zArmed = false; pressDown(); } else if (zWins && z > PRESS && zArmed) { zArmed = false; pullUp(); }
   else if (Math.abs(z) < RELEASE) zArmed = true;
   // 11:16 Chris: "are the motes drawing even when in fullscreen? … all background animations should be stopped in full screen". They
@@ -580,11 +593,18 @@ function frame(now) {
   twistStep(Math.min(0.05, k / 60));
   if (analog) physics(Math.min(0.05, k / 60), spinV, tiltV, Math.abs(z) > 120 && zWins); else Q = qSlerp(Q, Qt, ease);
   const shown = qMul(qMul(qAxis(0, 1, 0, leanY), qAxis(1, 0, 0, -leanP)), Q);
-  cube.style.transform = `translateZ(${-SH.r}px) ` + qMatrix(shown).toString();
+  // 15:45 PERF (Chris: "slower than hell… something seriously making this app lag"). Measured on a copy with his settings: this loop
+  // rewrote the solid's transform, the front / mark classes and the offered face's --lift + transition EVERY frame, moving or not, and
+  // each write recomposited all 18 faces at 60 fps (GPU process 10% → 1% with the loop paused; on his Mac it lands in WindowServer).
+  // Now every DOM write happens only when its value changes; a still solid writes nothing.
+  // (the spring re-lands a still solid every frame and float rounding makes each landing differ in the 15th decimal: compare at 5 decimals,
+  //  far below a pixel, or the transform is rewritten 60×/s anyway — measured 120 writes in 2 s at rest before this)
+  const qk = shown.map(v => v.toFixed(5)).join() + SH.r; if (frame.tf !== qk) { frame.tf = qk; cube.style.transform = `translateZ(${-SH.r}px) ` + qMatrix(shown).toString(); }
   offer(now);
   window.cubeShown = shown; window.cubeSH = SH; window.cubePrefs = prefs;       // handed to gl.js (the WebGL body) every frame
   if (!document.body.classList.contains('gl')) light(shown);
-  const fr = frontFace(); faces.forEach((f, j) => { f.el.classList.toggle('front', j === fr); f.el.classList.toggle('mark', j === selFace && selFace !== fr); });
+  const fr = frontFace(), mk = selFace !== fr ? selFace : -1;
+  if (frame.fr !== fr || frame.mk !== mk) { frame.fr = fr; frame.mk = mk; faces.forEach((f, j) => { f.el.classList.toggle('front', j === fr); f.el.classList.toggle('mark', j === mk); }); }
   // 6 (Riven): the space steps back while something waits for Chris or he's inside a face (prefs.bgDim of the way; 0 = never)
   const bgLevel = (fullFace >= 0 || faces.some(f => waiting(f.i))) ? 1 - (prefs.bgDim ?? 0.6) : 1; window.cubeBg = bgLevel;
   if (frame.bg !== bgLevel) { frame.bg = bgLevel; document.getElementById('bg').style.opacity = bgLevel; }   // write styles only when they change
@@ -841,7 +861,12 @@ addEventListener('click', closePalette);
 const NATIVE = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.tdt;
 const isWeb = i => !!(prefs.web && prefs.web[i]);
 function openWebFaces() { if (!NATIVE) return; faces.forEach(f => { f.el.classList.toggle('web', isWeb(f.i)); if (isWeb(f.i)) NATIVE.postMessage({ op: 'open', face: f.i, url: prefs.web[f.i] }); label(f); }); }
-window.webSnap = (i, data, title, url) => { const f = faces[i]; f.inner.querySelector('.websnap').src = data; f.webTitle = title; f.webUrl = url; label(f); };
+// 15:55 Chris: "the minibrowser sessions are flashing every few seconds like a whitish color". Every refresh swapped the picture's src
+// directly, and the img (white behind it) showed white while the new JPEG decoded. Now: identical picture = no swap at all; a new one is
+// decoded off-screen first and swapped in only when it's ready.
+window.webSnap = (i, data, title, url) => { const f = faces[i], el = f.inner.querySelector('.websnap'); f.webTitle = title; f.webUrl = url; label(f);
+  if (f.snapData === data) return; f.snapData = data; const im = new Image(); im.src = data;
+  im.decode().then(() => { if (f.snapData === data) el.src = data; }, () => { if (f.snapData === data) el.src = data; }); };
 window.webNav = (i, title, url, back, fwd) => { const f = faces[i]; f.webTitle = title; f.webUrl = url; label(f);
   if (fullFace === i) { const a = document.getElementById('addr'); if (a && document.activeElement !== a) a.value = url; } };
 function showWeb(i) { if (!NATIVE || fullFace !== i) return; const r = faces[i].host.getBoundingClientRect();
@@ -859,10 +884,13 @@ function makeWeb(i, url) { prefs.web = Object.assign({}, prefs.web || {}, { [i]:
 function unmakeWeb(i) { if (fullFace === i) toggleFull(); const w = Object.assign({}, prefs.web || {}); delete w[i]; prefs.web = w; savePrefs();
   NATIVE && NATIVE.postMessage({ op: 'close', face: i }); faces[i].webTitle = faces[i].webUrl = ''; openWebFaces(); renderPrefs(); }
 let snapTurn = 0;
-setInterval(() => {                                                      // keep the faces' pictures fresh: a few per tick, never the one you're in
-  if (!NATIVE || document.hidden) return; const ws = faces.filter(f => isWeb(f.i) && slotOf[f.i] >= 0 && fullFace !== f.i); if (!ws.length) return;
-  for (let k = 0; k < Math.min(3, ws.length); k++) NATIVE.postMessage({ op: 'snap', face: ws[(snapTurn++) % ws.length].i });
-}, 1500);
+// keep the faces' pictures fresh — but only the ones you can SEE (15:55 perf: it photographed every browser face every 1.5 s, full screen
+// or not, focused or not; each photo = a JPEG encode in the app + a ~150 KB string into the page + a decode + a re-raster of the face)
+setInterval(() => {
+  if (!NATIVE || document.hidden || !document.hasFocus() || fullFace >= 0) return;
+  const ws = faces.filter(f => isWeb(f.i) && slotOf[f.i] >= 0 && rotV(Q, SH.slots[slotOf[f.i]].n)[2] > 0.15); if (!ws.length) return;
+  for (let k = 0; k < Math.min(2, ws.length); k++) NATIVE.postMessage({ op: 'snap', face: ws[(snapTurn++) % ws.length].i });
+}, 3000);
 
 // ---------- THE OFFERING (Chris 09:11: "when you settle on a face… a second later, it slowly rises like 20% out of the cube, like it's
 // being offered to you — padded on start and end, like an ancient cammed machine is inside the thing"). After the solid has rested on
@@ -885,13 +913,13 @@ function offer(now) {
   const target = lift.face === fr ? want : 0;                           // a different face rests now: the risen one sinks first
   if (target !== lift.to) { lift.from = lift.v; lift.to = target; lift.t0 = now; lift.dur = target ? 1700 * (1 - Math.min(1, lift.v)) + 1 : 900 * lift.v + 1; lift.rising = !!target; }   // 09:13 Chris: watch it drop back in as you spin away (0.9 s cam stroke)
   const t = Math.min(1, (now - lift.t0) / lift.dur), was = lift.v; lift.v = lift.from + (lift.to - lift.from) * (lift.rising ? riseCurve(t) : cam(t)); lift.seated = lift.rising && t >= 1;
-  if (lift.face >= 0) { const el = faces[lift.face].el; el.style.setProperty('--lift', (lift.v * H).toFixed(2) + 'px');
-    el.style.transition = lift.v > 0 && !lift.seated ? 'none' : ''; }
+  if (lift.face >= 0) { const el = faces[lift.face].el, lv = (lift.v * H).toFixed(2) + 'px', tr = lift.v > 0 && !lift.seated ? 'none' : '';
+    if (el._lift !== lv) { el._lift = lv; el.style.setProperty('--lift', lv); } if (el._tr !== tr) { el._tr = tr; el.style.transition = tr; } }   // (15:45 perf: only on change)
   // 3) the rest of the solid steps back a little while a face is offered (a dark veil over the other screens, not a filter: cheap)
   const ov = Math.max(0, Math.min(1, lift.v)).toFixed(3); if (offer.ov !== ov) { offer.ov = ov; document.documentElement.style.setProperty('--offer', ov); }
-  faces.forEach(f => f.el.classList.toggle('offered', f.i === lift.face && lift.v > 0.01));
+  const offd = lift.v > 0.01 ? lift.face : -1; if (offer.offd !== offd) { offer.offd = offd; faces.forEach(f => f.el.classList.toggle('offered', f.i === offd)); }
   if (lift.seated && !lift.thunked) { lift.thunked = true; clickSound(520, 0.18, 'sndRise'); } if (!lift.rising) lift.thunked = false;  // seated (after the overshoot): a soft low thunk
-  if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) faces[lift.face].el.style.removeProperty('--lift'); lift.face = fr; }
+  if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) { const el = faces[lift.face].el; el.style.removeProperty('--lift'); el._lift = undefined; } lift.face = fr; }
   window.cubeLift = { face: lift.face, slot: lift.face >= 0 ? slotOf[lift.face] : -1, h: lift.v * H };
 }
 
@@ -1068,17 +1096,17 @@ function drumItems() {
   return { waiting: w.length, rows, start };
 }
 function showDrum(on) {
-  if (!on) { drumEl.classList.remove('on'); cancelAnimationFrame(drum.raf); if (drum.gl && window.GL) window.GL.drumClose(); drum.gl = false; drumEl.replaceChildren(); return; }
-  showQuickRef(false); const { waiting: anyW, rows, start } = drumItems();
+  if (!on) { drumEl.classList.remove('on', 'g3'); cancelAnimationFrame(drum.raf); if (drum.gl && window.GL) window.GL.drumClose(); drum.gl = false; drumEl.replaceChildren(); return; }
+  showQuickRef(false); drum.ev = ''; const { waiting: anyW, rows, start } = drumItems();
   // 14:07 Chris: "a crayon drawing… model it in actual 3D… obsidian, not cardboard". With the WebGL renderer on, gl.js draws a real
   // obsidian reel with chrome end caps (GL.drumOpen / drumRender); the CSS drum below stays only as the fallback when WebGL is off.
   drum.gl = !!(window.GL && window.GL.drumOpen && prefs.gl !== false);
   if (drum.gl) { drum.items = rows; drum.n = rows.length; drum.p = start; drum.v = 0; drum.wrap = true;
-    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `${anyW} WAITING · ${rows.length} SESSIONS` : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div><div class="dstage dstage3d"></div>` +
-      `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div>`;
+    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `${anyW} WAITING · ${rows.length} SESSIONS` : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div>` +
+      `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div><div class="dball" id="dball"></div><div class="dstage dstage3d"></div>`;
     try { window.GL.drumOpen(drumEl.querySelector('.dstage3d'), rows.map(it => ({ no: it.i + 1, title: it.title, age: it.age, color: it.g ? prefs.palette[it.g - 1] : null,
       sub: [it.why, it.g ? colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : ''].filter(Boolean).join(' · ') })), start);
-      drumEl.classList.add('on'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame); return; }
+      drumEl.classList.add('on', 'g3'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame); return; }
     catch (e) { console.warn('[drum] 3D failed, using the flat drum:', e); toast('3D drum failed (' + (e && e.message || e) + ') · showing the flat one'); drum.gl = false; } }
   drum.items = rows; drum.n = Math.max(rows.length + 2, 8); drum.wrap = false;   // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends) drum.p = 0; drum.v = 0; drum.front = -1;
   const n = drum.n, dh = 84, dw = Math.min(640, innerWidth - 200), r = dh / (2 * Math.tan(Math.PI / n)), R = dh / (2 * Math.sin(Math.PI / n)), al = 360 / n;
@@ -1102,10 +1130,15 @@ function drumFrame(now) {
   // that rolled the drum a notch. Now the moment you start pushing in, the drum freezes on the row in the frame, and that's where you go.
   // a clear push in (z well above every other axis), not a tilt that leaks a little z
   const pushZ = Math.abs(sbT[2]), pushOther = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
-  if (pushZ > 90 && pushZ > 1.5 * pushOther) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
+  if (pushZ > 90 && pushZ > pushOther) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
   let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
   if (!drum.wrap && (drum.p < 0 || drum.p > hi)) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
   if (crossed) clickSound(2600, 0.16);
+  // 16:30 a live ball readout under the drum (Chris's real ball failed where the scripted one passed): push, strongest tilt, the rule,
+  // and the drum's last decision. Read it out after one push and the next fix is a fact, not a guess.
+  if (now - (drum.hudAt || 0) > 120) { drum.hudAt = now; const pz = -sbT[2], oth = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
+    const t = `ball · push ${Math.round(pz)} · strongest tilt ${Math.round(oth)} · a push counts at ${PRESS}+ and above the tilt${drum.ev ? '  ·  last: ' + drum.ev : ''}`;
+    const el = document.getElementById('dball'); if (el && el.textContent !== t) el.textContent = t; }
   if (drum.gl) { window.GL.drumRender(drum.p); drum.raf = requestAnimationFrame(drumFrame); return; }
   const n = drum.n, al = 360 / n, rot = document.getElementById('drot'); if (rot) rot.style.transform = `rotateX(${drum.p * al}deg)`;
   const fi = drumIdx(drum);
@@ -1113,7 +1146,11 @@ function drumFrame(now) {
     el.style.setProperty('--shade', Math.min(0.85, 1 - Math.cos(Math.min(Math.PI / 2, Math.abs(b) * al * Math.PI / 180)) * 0.95 + 0.05).toFixed(3)); el.classList.toggle('front', k === fi); });
   drum.raf = requestAnimationFrame(drumFrame);
 }
-function drumGo() { if (drum.lock != null) { drum.p = drum.lock; drum.lock = null; } const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
+// 16:25 (found by tests/drive.mjs): a push that still has tilt in it fired, the drum closed, and the hand's leftover tilt then rolled the
+// solid OFF the face it was flying to. After the drum sends you somewhere the ball is HUSHED until your hand lets go (every axis back
+// near rest): one push, one action, like a pinball flipper.
+let ballHush = false;
+function drumGo() { ballHush = true; if (drum.lock != null) { drum.p = drum.lock; drum.lock = null; } const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
 drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY * 0.012; }, { passive: false });
 drumEl.addEventListener('mousedown', e => { if (drum.gl) { if (e.target.closest('.dstage3d')) drumGo(); else showDrum(false); return; } const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
   if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });
@@ -1351,7 +1388,7 @@ function handInput(pushing, forDrum) {
   const f = prefs.flip || {}, tilt = (prefs.handSrc || ((devLayout() || {}).roll) || 'slide') === 'tilt';
   let ix = tilt ? -sbR[1] : sbT[0], iy = tilt ? sbR[0] : -sbT[1], tw = -sbR[2];       // screen right, screen up, clockwise twist (signs: ⚙ flips)
   if (f.x) ix = -ix; if (f.y) iy = -iy; if (f.t) tw = -tw;
-  if (pushing || (drumOpen() && !forDrum)) { ix = 0; iy = 0; tw = 0; }    // pushing down / pulling up = select / full screen, never a roll; the drum owns the ball while open
+  if (pushing || ballHush || (drumOpen() && !forDrum)) { ix = 0; iy = 0; tw = 0; }    // pushing down / pulling up = select / full screen, never a roll; the drum owns the ball while open
   return { ix, iy, tw };
 }
 function physics(dt, spinV, tiltV, pushing) {

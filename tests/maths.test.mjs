@@ -44,7 +44,7 @@ vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
   let SH, slotOf, Q = [1, 0, 0, 0], Qt = [1, 0, 0, 0], W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0;
   const visible = () => slotOf.map((s, i) => s >= 0 ? i : -1).filter(i => i >= 0);
-  const performance = { now: () => 0 }; let hpos = -1, histNav = 0;
+  const performance = { now: () => 0 }; let hpos = -1, histNav = 0, ballHush = false;
   const present = () => {}, clickSound = () => {}, devLayout = () => null, select = () => {}, toggleFull = () => {}, drumOpen = () => false; let fullFace = -1, zooming = false;
   ${NAMES.map(extract).join('\n')}
   function useShape(name) { SH = buildShape(name); slotOf = Array.from({ length: 18 }, (_, i) => i < SH.slots.length ? i : -1);

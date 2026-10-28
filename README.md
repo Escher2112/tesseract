@@ -128,6 +128,12 @@ sizes fight over each terminal's size and the text gets scrambled until one clos
 
 The ⚙ in the top-right corner shows all the controls.
 
+**Changing anything?** Two test suites. `node tests/maths.test.mjs` (fast, no browser) checks the solid's maths and that every
+navigation function still exists. `node tests/drive.mjs` runs the real page in headless Chrome against a throwaway server (its own
+settings folder and port, never your sessions), presses the ball the way a Spaceball does, and checks the drum, history, a slow machine,
+and that a still solid writes nothing to the page (the cheap way to keep it from lagging). `SHOTS=<folder> node tests/drive.mjs shots`
+saves pictures to look at. Both need Python 3; drive.mjs needs Chrome.
+
 **Changing the solid's maths?** Run `node tests/maths.test.mjs` before and after. It reads the live functions out of `index.html` and
 checks every shape: the solids are built right, 2,000 random rolls each land facing you and square, a jump reaches every screen, and the
 spring settles at every corner of the motion sliders.
