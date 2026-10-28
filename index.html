@@ -198,7 +198,8 @@ es.onmessage = e => {
   else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
   else if (m.k === 'sbb') sbButtons(m.m);
   else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
-  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; savePrefs(); renderPrefs(); toast(`${m.target} is now button ${m.b}`); }
+  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; savePrefs(); renderPrefs(); toast(`you pressed button #${m.b} (${btnLabel(m.b)}): ${(BUTTON_ACTIONS.find(a => a[0] === m.target) || [, m.target])[1]} is on it now`); }
+  else if (m.k === 'device') { DEVICE = { name: m.name, vid: m.vid, pid: m.pid }; renderPrefs(); }
   else if (m.k === 'attn') { const a = att[m.f], fresh = a.s !== 'needs' && m.s === 'needs'; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn();
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
@@ -340,9 +341,10 @@ function sbButtons(mask) {
   if (pressed & bit(B.jump)) jumpNext();
   if (pressed & bit(B.back)) goBack();
   if (!pressed) return;
-  if (pressed & 1) { const i = frontFace(); select(i); }
-  if (pressed & 2) toggleFull();
-  if (pressed & 4) { if (fullFace >= 0) toggleFull(); Qt = [1, 0, 0, 0]; present(Qt); select(frontFace()); }
+  // 09:52 Chris: "make them mappable… it's going to change based on the Spaceball version". Every action reads its button from prefs.buttons
+  if (pressed & bit(B.select)) { const i = frontFace(); select(i); }
+  if (pressed & bit(B.full)) toggleFull();
+  if (pressed & bit(B.home)) { if (fullFace >= 0) toggleFull(); Qt = [1, 0, 0, 0]; present(Qt); select(frontFace()); }
 }
 // the PowerMate (Chris 22:28): turning rolls the cube side to side, or top to bottom; a tap swaps which; a double tap picks the face.
 // A long press (over 0.6 s, no turning) = full screen on/off. About 8 clicks = one face.
@@ -423,7 +425,7 @@ setTimeout(() => faces.forEach(refit), 300);
 // saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
 // pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
 const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
-  buttons: { color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 },
+  buttons: { select: 1, full: 2, home: 3, color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 },
   glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15,
   shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, handSrc: 'slide', flip: {}, cubeClassic: false };
 let prefs = JSON.parse(JSON.stringify(DEF));
@@ -779,6 +781,24 @@ addEventListener('gesturechange', e => { e.preventDefault();
   if (e.scale > 1.25 && fullFace < 0) enterFace(frontFace()); else if (e.scale < 0.8 && fullFace >= 0 && !zooming) toggleFull(); });
 addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwisting = false; if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); } });
 
+// ---------- BALL BUTTONS (09:52 Chris: "make them mappable and look up the layouts for all Spaceballs"). One table: each action, the
+// button it's on (shown by the device's PRINTED label when we know the model, e.g. "A" for #10 on the Spaceball 5000), "change" = press
+// the one you want (the server reports the raw number back), and a ⚠ when two actions share a button. The hand-back button is the
+// server's own setting (it has to work while the page isn't listening) and keeps its own change link up top.
+const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (face 1, straight)'],
+  ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'back to where you were'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4']];
+let DEVICE = null;                                                       // {name, vid, pid} from the server once a 3D mouse is open
+const BUTTON_LABELS = { 'c621': ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'] };   // printed labels by HID button #; UNVERIFIED (research pending)
+function btnLabel(n) { const L = DEVICE && BUTTON_LABELS[DEVICE.pid]; return L && L[n - 1] ? `${L[n - 1]}` : `#${n}`; }
+function buttonsTable() {
+  const B = prefs.buttons, tog = +document.getElementById('tog').textContent || 6, used = {};
+  Object.values(B).concat([tog]).forEach(n => { used[n] = (used[n] || 0) + 1; });
+  return `<b>BALL BUTTONS</b>${DEVICE ? ` (your device: ${DEVICE.name} · ${DEVICE.vid}:${DEVICE.pid})` : ''}<br>` +
+    BUTTON_ACTIONS.map(([k, t]) => `${t}: <b>${btnLabel(B[k])}</b>${used[B[k]] > 1 ? ' ⚠ shared' : ''} <a href="#" data-learn="${k}">change</a>`).join('<br>') +
+    `<br>hand back to your Mac: <b>${btnLabel(tog)}</b>${used[tog] > 1 ? ' ⚠ shared' : ''} (change it at the top)` +
+    `<br><i>change = click it, then press the ball button you want</i><br>`;
+}
+
 // ---------- the ⚙ panel's settings for both
 function renderPrefs() {
   const el = document.getElementById('prefs'), B = prefs.buttons, keys = ['7', '8', '9', '0'];
@@ -798,8 +818,9 @@ function renderPrefs() {
     `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'matrix', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
     ` ${prefs.theme === 'matrix' ? 'density' : 'motes'} <input type="range" id="p-motes" min="0.25" max="2" step="0.25" value="${prefs.motes}">` +
     (prefs.theme === 'matrix' ? ` <select id="p-mpal">${MATRIX_PALETTES.map(p => `<option value="${p.id}" ${(prefs.matrixPalette || 'cyber') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}</select>` : '') + `<br>` +
+    buttonsTable() +
     `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
-    [1, 2, 3, 4].map(g => `<span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span> ${g}: <b>${colourName(prefs.palette[g - 1])}</b> · ball button <b>${B['color' + g]}</b> ${learn('color' + g)} · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
+    [1, 2, 3, 4].map(g => `<span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span> ${g}: <b>${colourName(prefs.palette[g - 1])}</b> · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
     `<br>colour this face: ${[1, 2, 3, 4].map(g => `<button data-assign="${g}">${g}</button>`).join('')}` +
     `<br>glow <input type="range" id="p-glow" min="0" max="2" step="0.1" value="${prefs.glow}"> <label><input type="checkbox" id="p-lowfx" ${prefs.lowfx ? 'checked' : ''}> low effects</label>` +
     `<br><label><input type="checkbox" id="p-cluster" ${prefs.cluster ? 'checked' : ''}> group faces by colour</label> (moves faces, never sessions)` +
@@ -807,9 +828,7 @@ function renderPrefs() {
     `<br><label><input type="checkbox" id="p-fin" ${prefs.attnFinished ? 'checked' : ''}> also when a session finishes its turn</label>` +
     `<br><label><input type="checkbox" id="p-quiet" ${prefs.quiet ? 'checked' : ''}> quiet: no list top-right (faces still pulse)</label>` +
     `<br>fade the pulse toward white over <input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin}"> min (0 = never)` +
-    `<br>jump to the oldest waiting (and zoom in): ball button <b>${B.jump}</b> ${learn('jump')} · Ctrl+Option+J` +
-    `<br>back to where you were: ball button <b>${B.back}</b> ${learn('back')} · Ctrl+Option+B` +
-    `<br><i>(click "change", then press the ball button you want: any button but your hand-back one)</i>`;
+    `<br>jump to the oldest waiting (and zoom in): Ctrl+Option+J · back to where you were: Ctrl+Option+B (ball buttons: see BUTTONS)`;
   el.querySelectorAll('[data-pal]').forEach(c => { c.onclick = e => { e.stopPropagation(); openPalette(+c.dataset.pal, c); }; });
   el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
   const pw = document.getElementById('p-web'); if (pw) pw.onclick = () => makeWeb(cur(), toUrl(document.getElementById('p-url').value));

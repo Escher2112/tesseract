@@ -183,7 +183,7 @@ def load_config():
 def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
-PAGE_BUTTONS = {"jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
+PAGE_BUTTONS = {"select", "full", "home", "jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
 PREF_KEYS = {"material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
@@ -191,7 +191,9 @@ PREF_KEYS = {"material", "bloom", "gl", "light", "quality", "matrixPalette", "we
 def find_3d_mouse(hid):
     for d in hid.enumerate():
         v, p = d["vendor_id"], d["product_id"]
-        if v == 0x256f or (v == 0x046d and 0xc600 <= p <= 0xc6ff): sb["vendor"] = v; return d["path"]
+        if v == 0x256f or (v == 0x046d and 0xc600 <= p <= 0xc6ff):
+            sb["vendor"] = v; sb["dev"] = {"k": "device", "name": d.get("product_string") or "3D mouse", "vid": f"{v:04x}", "pid": f"{p:04x}"}
+            return d["path"]
     return None
 def set_exclusive(on):                                                  # macOS only: hidapi's switch between grabbing and sharing
     try:
@@ -267,6 +269,7 @@ class H(BaseHTTPRequestHandler):
             if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
         mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})}))
+        if sb.get("dev"): mine.put(json.dumps(sb["dev"]))                # which 3D mouse this is (the page shows its own button labels)
         with attn_lock:
             for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))
         with listeners_lock: listeners.append(mine)
