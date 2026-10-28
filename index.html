@@ -260,7 +260,7 @@ const faces = NAMES.map((name, i) => {
   // (clicks, drags, double-clicks on the solid are handled once, for the whole scene: see MOUSE + TRACKPAD)
   return f;
 });
-function label(f) { const t = f.name + '  ·  ' + (isWeb(f.i) ? '🌐 ' + (f.webTitle || f.webUrl || 'browser') : (f.title || 'no session yet: type claude')); f.hdr.firstChild.textContent = t; if (fullFace === f.i && !isWeb(f.i)) fullhdr.textContent = t + '   (button 2 / Ctrl+Option+Return = back to the cube)'; if (typeof renderAttn === 'function') renderAttn(); }
+function label(f) { const t = (f.i === (prefs.homeFace ?? 0) ? '⌂ ' : '') + f.name + '  ·  ' + (isWeb(f.i) ? '🌐 ' + (f.webTitle || f.webUrl || 'browser') : (f.title || 'no session yet: type claude')); f.hdr.firstChild.textContent = t; if (fullFace === f.i && !isWeb(f.i)) fullhdr.textContent = t + `   (${prefs.buttons && prefs.buttons.full ? 'button ' + btnLabel(prefs.buttons.full) + ' / ' : ''}pull up / Ctrl+Option+Return = back to the cube)`; if (typeof renderAttn === 'function') renderAttn(); }
 
 // ---------- talking to server.py: one stream in; keystrokes out in order, one request at a time per face
 const post = (path, body) => fetch(`${path}${path.includes('?') ? '&' : '?'}k=${encodeURIComponent(KEY)}`, { method: 'POST', body });
@@ -429,8 +429,11 @@ function sbButtons(mask) {
 // home = face 1, upright. 13:46 Chris: "7 doesn't select face 1". It set the target but not cmdTarget, so in hand mode the very next
 // physics() frame replaced it with the nearest screen and nothing moved. Now it claims the target like goTo does, and leaves full
 // screen first (waiting for the zoom-out, the way openFace does). Covered by tests/maths.test.mjs ("home lands on face 1").
+// 13:50 Chris: "we should have a 'set home face' option… the home face is your primary code window." prefs.homeFace (0-based, default
+// face 1), set in ⚙ Buttons; its title plate carries ⌂. If that face is parked on this shape, home falls back to the first face shown.
+const homeFace = () => { const h = prefs.homeFace ?? 0; return slotOf[h] >= 0 ? h : (visible()[0] ?? 0); };
 function goHome() {
-  const go = () => { W = [0, 0, 0]; settled = false; goTo(0); select(0); };   // face 1 WHEREVER it sits (13:49: colour groups move faces between slots, so the identity pose showed face 3)
+  const h = homeFace(), go = () => { W = [0, 0, 0]; settled = false; goTo(h); select(h); };   // the home face WHEREVER it sits (13:49: colour groups move faces between slots)
   if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
   else go();
 }
@@ -461,7 +464,7 @@ addEventListener('keydown', e => {
   if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
-  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack();
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyH') goHome();
   else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
@@ -882,7 +885,7 @@ addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwis
 // button it's on (shown by the device's PRINTED label when we know the model, e.g. "A" for #10 on the Spaceball 5000), "change" = press
 // the one you want (the server reports the raw number back), and a ⚠ when two actions share a button. The hand-back button is the
 // server's own setting (it has to work while the page isn't listening) and keeps its own change link up top.
-const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (face 1, straight)'],
+const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (your home face, set above)'],
   ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'back to where you were'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4']];
 let DEVICE = null;                                                       // {name, vid, pid} from the server once a 3D mouse is open
 // ---------- PER-MODEL LAYOUTS (09:55, a research pass over three independent sources that agree: Blender GHOST_NDOFManager.cc, the Linux
@@ -934,8 +937,10 @@ function showTab(t) { prefsTab = t; document.querySelectorAll('#dnav .dtab').for
 function buttonsTable() {
   const B = prefs.buttons, tog = +document.getElementById('tog').textContent || 6, used = {};
   Object.values(B).concat([tog]).forEach(n => { if (n) used[n] = (used[n] || 0) + 1; });
-  const L = devLayout();
-  return `<div class="card">${DEVICE ? `<b>${esc(L ? L.model : DEVICE.name)}</b> <span class="note">· ${DEVICE.vid}:${DEVICE.pid}</span>` : '<span class="note">No 3D mouse found yet — plug one in and reopen settings.</span>'}` +
+  const L = devLayout(), h = prefs.homeFace ?? 0;
+  return `<div class="grp">Home face</div>` + fld('Your primary code window: home on the ball (and Ctrl+Option+H) goes here. Its title shows ⌂.',
+      `<div style="display:flex;gap:8px;align-items:center">` + sel('p-home', visible().map(i => [i, `${i + 1} · ${(faces[i].title || 'shell').slice(0, 40)}`]), h) +
+      `<button class="btn" id="p-homehere">The face in front</button></div>`) + `<div class="grp">Buttons</div><div class="card">${DEVICE ? `<b>${esc(L ? L.model : DEVICE.name)}</b> <span class="note">· ${DEVICE.vid}:${DEVICE.pid}</span>` : '<span class="note">No 3D mouse found yet — plug one in and reopen settings.</span>'}` +
       (L && L.preset ? `<div style="margin-top:6px"><a class="linkbtn" href="#" id="p-preset">Use this model's suggested map</a></div>` : '') + `</div>` +
     BUTTON_ACTIONS.map(([k, t]) => `<div class="brow"><span>${t}${used[B[k]] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(B[k])}</span><a class="linkbtn" href="#" data-learn="${k}">change</a></div>`).join('') +
     `<div class="brow"><span>hand the ball back to your Mac${used[tog] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(tog)}</span><a class="linkbtn" href="#" id="learn">change</a></div>` +
@@ -1017,6 +1022,9 @@ function renderPrefs() {
   glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
   { const r = document.getElementById('p-motes'); r.oninput = () => { r.nextElementSibling.textContent = r.value; }; r.onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); }; }
   const mp = document.getElementById('p-mpal'); if (mp) mp.onchange = e => { prefs.matrixPalette = e.target.value; savePrefs(); applyPrefs(); };
+  const setHome = i => { prefs.homeFace = i; savePrefs(); faces.forEach(label); renderPrefs(); toast(`face ${i + 1} is home ⌂`); };
+  const ph = document.getElementById('p-home'); if (ph) ph.onchange = () => setHome(+ph.value);
+  const phh = document.getElementById('p-homehere'); if (phh) phh.onclick = () => setHome(cur());
   const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
     prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();
     toastUndo(`${devLayout().model}: suggested map applied`, () => { prefs.buttons = was; prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: was }); savePrefs(); renderPrefs(); }); };
@@ -1220,7 +1228,7 @@ function renderMotion() {
 // follow his Motion settings, and free buttons are listed as free. Change a mapping and the help changes with it.
 function helpSections() {
   const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, k = n => `[${btnLabel(n)}]`;
-  const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: 'home: back to face 1, square',
+  const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: `home: back to your home face (${(prefs.homeFace ?? 0) + 1}), square`,
     jump: 'jump to the oldest face waiting for you, zoomed in', back: 'back to exactly where you were',
     color1: 'colour group 1: tap = next face · hold = paint the face in front', color2: 'colour group 2: tap = next face · hold = paint',
     color3: 'colour group 3: tap = next face · hold = paint', color4: 'colour group 4: tap = next face · hold = paint' };

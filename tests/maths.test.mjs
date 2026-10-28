@@ -38,7 +38,7 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'goHome', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'homeFace', 'goHome', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
@@ -113,12 +113,12 @@ for (const shape of ['cube', 'cuboct', 'rhombi']) {
   // 4b. the HOME button in hand mode (Chris 13:46: "7 doesn't select face 1"): from a scrambled, settled pose, press home and let the
   //     spring run. It must end on face 1, upright (the identity pose), not snap back to the nearest screen.
   //     Run it on the default layout AND with the faces shuffled between slots (colour groups move them: 13:49 home went to face 3).
-  for (const shuffle of [false, true]) { run(`useShape('${shape}'); ${shuffle ? "slotOf = slotOf.map((s, i, a) => s < 0 ? s : a.filter(x => x >= 0)[(i + 2) % a.filter(x => x >= 0).length]);" : ''}
-      for (let k = 0; k < 5; k++) Qt = rollTo([0, 1, 0], 1); Q = Qt; settled = false;`);
+  for (const [shuffle, hf] of [[false, undefined], [true, undefined], [true, 2]]) { run(`useShape('${shape}'); ${shuffle ? "slotOf = slotOf.map((s, i, a) => s < 0 ? s : a.filter(x => x >= 0)[(i + 2) % a.filter(x => x >= 0).length]);" : ''}
+      ${hf !== undefined ? `prefs.homeFace = ${hf};` : ''} for (let k = 0; k < 5; k++) Qt = rollTo([0, 1, 0], 1); Q = Qt; settled = false;`);
     let t = 0; while (t < 20 && !run('settled')) { run('physics(1 / 60, 0, 0, false)'); t += 1 / 60; }
     run('goHome()'); t = 0; while (t < 20 && !run('settled')) { run('physics(1 / 60, 0, 0, false)'); t += 1 / 60; }
     const p = run('pose(Q)');
-    check(run('settled') && p.f === 0 && okPose(p), `${shape}${shuffle ? ' (faces shuffled)' : ''}: home lands on face 1, facing you and square (front ${p.f}, ${t.toFixed(2)}s)`); }
+    const want = hf ?? 0; check(run('settled') && p.f === want && okPose(p), `${shape}${shuffle ? ' (faces shuffled)' : ''}: home lands on face ${want + 1}, facing you and square (front ${p.f + 1}, ${t.toFixed(2)}s)`); }
 
   // 5. the spring: let go 30° off a screen and it settles onto a screen, at the defaults and at every corner of the sliders' range
   const corners = [{}];
