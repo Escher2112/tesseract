@@ -601,7 +601,7 @@ function drawBg(now) {
   }
 }
 let bgPrev = 0;
-function bgLoop(now) { if (!document.hidden && !document.body.classList.contains('gl') && now - bgPrev > 32 && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
+function bgLoop(now) { if (!document.hidden && !document.body.classList.contains('gl') && now - bgPrev > (document.hasFocus() ? 32 : 250) && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
 addEventListener('resize', sizeBg);
 function assignColor(g) {
   const i = cur(), was = prefs.colors[i]; if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;

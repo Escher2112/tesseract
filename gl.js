@@ -295,7 +295,10 @@ function loop(now) {
   if (builtFor !== window.cubeSH) { buildBody(); dirty = true; }
   if (mesh && updateOffer()) dirty = true;
   const q = window.cubeShown || [1, 0, 0, 0], qs = q.map(v => v.toFixed(5)).join(), moving = qs !== lastQ;
-  if (!moving && !dirty && Math.abs((window.cubeBg ?? 1) - bgLevel) < 0.002 && now - last < (rain ? 50 : 33)) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
+  // 10:10 Chris: "my dock is locking up". WindowServer was at 45% and this page kept drawing at 30 fps behind other apps. When the window
+  // isn't the one he's using, the space drifts at ~4 fps and nothing else redraws unless the solid actually moves.
+  const away = !document.hasFocus(), idleMs = away ? 250 : (rain ? 50 : 33);
+  if (!moving && !dirty && Math.abs((window.cubeBg ?? 1) - bgLevel) < 0.002 && now - last < idleMs) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
   const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now; lastQ = qs; dirty = false;
   body.quaternion.set(-q[1], q[2], -q[3], q[0]); body.position.set(0, 0, -window.cubeSH.r);   // page rotation (y down) → GL (y up)
   // (Riven's review, 6) the space steps back while something waits or Chris is inside a face: index.html sets cubeBg (1 = full), we ease to it
