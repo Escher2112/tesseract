@@ -7,6 +7,7 @@ rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/core/vend
 swiftc -swift-version 5 -O -o "$APP/Contents/MacOS/3D Terminal" "$HERE/main.swift" -framework AppKit -framework WebKit
 cp "$ROOT/server.py" "$ROOT/index.html" "$APP/Contents/Resources/core/"
 cp "$ROOT/vendor/"* "$APP/Contents/Resources/core/vendor/"
+cp "$HERE/AppIcon.icns" "$APP/Contents/Resources/"          # drawn by icon/make_icon.swift
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -17,6 +18,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>3D Terminal</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
