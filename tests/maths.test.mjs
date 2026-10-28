@@ -38,13 +38,13 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'homeFace', 'goHome', 'backStack', 'noteVisit', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
   let SH, slotOf, Q = [1, 0, 0, 0], Qt = [1, 0, 0, 0], W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0;
   const visible = () => slotOf.map((s, i) => s >= 0 ? i : -1).filter(i => i >= 0);
-  const performance = { now: () => 0 }; let lastVisit = -1, backNav = 0;
+  const performance = { now: () => 0 }; let hpos = -1, histNav = 0;
   const present = () => {}, clickSound = () => {}, devLayout = () => null, select = () => {}, toggleFull = () => {}; let fullFace = -1, zooming = false;
   ${NAMES.map(extract).join('\n')}
   function useShape(name) { SH = buildShape(name); slotOf = Array.from({ length: 18 }, (_, i) => i < SH.slots.length ? i : -1);
@@ -121,12 +121,15 @@ for (const shape of ['cube', 'cuboct', 'rhombi']) {
     const p = run('pose(Q)');
     const want = hf ?? 0; check(run('settled') && p.f === want && okPose(p), `${shape}${shuffle ? ' (faces shuffled)' : ''}: home lands on face ${want + 1}, facing you and square (front ${p.f + 1}, ${t.toFixed(2)}s)`); }
 
-  // 4c. history (13:55 Chris: "nothing to go back to" after moving by hand): land on face A, move yourself to B, and A is remembered
-  { run(`useShape('${shape}'); backStack.length = 0; lastVisit = -1;`);
+  // 4c. history (13:55 Chris: back after moving by hand; then "forward moves up to the end of the list, back walks back through the stack")
+  { run(`useShape('${shape}'); hist.length = 0; hpos = -1;`);
     const settle = () => { let t = 0; while (t < 20 && !run('settled')) { run('physics(1 / 60, 0, 0, false)'); t += 1 / 60; } };
     run('goTo(2); settled = false;'); settle(); run('goTo(4); settled = false;'); settle(); run('goHome(); settled = false;'); settle();
-    const st = run('JSON.stringify(backStack.map(e => e.i))');
-    check(st === '[2,4]', `${shape}: moving by hand is remembered for back (history ${st}, want [2,4])`); }
+    const st = run('JSON.stringify([hist.map(e => e.i), hpos])');
+    check(st === '[[2,4,0],2]', `${shape}: every face you land on is in the history (${st}, want [[2,4,0],2])`);
+    run('hpos = 0; noteVisit(5)');                                        // back twice, then go somewhere new: the forward part is cut off
+    const st2 = run('JSON.stringify([hist.map(e => e.i), hpos])');
+    check(st2 === '[[2,5],1]', `${shape}: a new place from the middle drops the forward part (${st2}, want [[2,5],1])`); }
 
   // 5. the spring: let go 30° off a screen and it settles onto a screen, at the defaults and at every corner of the sliders' range
   const corners = [{}];

@@ -462,6 +462,7 @@ function sbButtons(mask) {
   if (pressed & bit(B.quickref)) showQuickRef(!qrefOpen());
   if (pressed & bit(B.jump)) jumpNext();
   if (pressed & bit(B.back)) goBack();
+  if (pressed & bit(B.forward)) goForward();
   if (!pressed) return;
   // 09:52 Chris: "make them mappable… it's going to change based on the Spaceball version". Every action reads its button from prefs.buttons
   if (pressed & bit(B.select)) { const i = frontFace(); select(i); }
@@ -506,7 +507,7 @@ addEventListener('keydown', e => {
   if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
-  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen());
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen());
   else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
@@ -564,7 +565,7 @@ setTimeout(() => faces.forEach(refit), 300);
 // saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
 // pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
 const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
-  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12 },   // Chris's Spaceball layout (11:23; B = quick reference card 13:50)
+  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12, forward: 5 },   // Chris's Spaceball layout (11:23; B = quick reference 13:50; 5 = forward 13:56)
   glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15,
   shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, flip: {},   /* no handSrc default: it follows the device (LAYOUTS[pid].roll) unless he picks one (11:2x fix) */ cubeClassic: false };
 let prefs = JSON.parse(JSON.stringify(DEF));
@@ -736,39 +737,33 @@ function tint() {                                                        // the 
     f.el.style.setProperty('--pc', c); const q = attnq.querySelector(`[data-f="${f.i}"]`); if (q) q.style.setProperty('--pc', c); });
 }
 setInterval(tint, 2000);
-const backStack = [];
-// 13:55 Chris: "go into Tez's face, pop back out, go to github, press A: 'nothing to go back to'". History was only written by jumpTo,
-// so moving yourself (rolling, clicking, colours, home) left nothing to go back to. Now EVERY face you land on is remembered, like a
-// browser's back button: noteVisit() runs when the solid locks onto a face (physics) and pushes the face you were on before. While
-// back is travelling, its own landing is not recorded, so pressing back again walks further back instead of ping-ponging.
-let lastVisit = -1, backNav = 0;
+// 13:55 Chris: "nothing to go back to" after moving by hand, then: "shouldn't it remember the last several faces you were on? forward
+// moves up to the end of the list and back walks back through the stack." So: a browser-style history. noteVisit() runs whenever the
+// solid locks onto a face (physics) — rolling, clicking, colours, home, jumps all count. Back / forward move a cursor through the list
+// without recording their own landing; going somewhere NEW from the middle cuts off the forward part. Up to 20 places.
+const hist = []; let hpos = -1, histNav = 0;
 function noteVisit(i) {
-  if (performance.now() < backNav) { backNav = 0; lastVisit = i; return; }
-  if (lastVisit >= 0 && lastVisit !== i && (!backStack.length || backStack[backStack.length - 1].i !== lastVisit)) {
-    backStack.push({ i: lastVisit, full: false }); if (backStack.length > 12) backStack.shift(); }
-  lastVisit = i;
+  if (performance.now() < histNav) { histNav = 0; return; }                // this landing IS a back / forward step
+  if (hpos >= 0 && hist[hpos].i === i) return;
+  hist.splice(hpos + 1); hist.push({ i, full: false }); if (hist.length > 20) hist.shift(); hpos = hist.length - 1;
 }
-// 09:46 Chris: with only the Spaceball it took "button 6, navigate and press, button 6 back, pull face to focus, deal with it, push out,
-// button 6 again, repeat". Now ONE press of jump rolls to the oldest waiting face AND zooms in; ONE press of back returns exactly where
-// he was. openFace sequences the zooms: leaving one full-screen face finishes its zoom-out before rolling and zooming into the next
-// (before, the second zoom fired mid-animation and was silently ignored).
-function openFace(i, wantFull) {
-  const go = () => { if (wantFull) enterFace(i); else { goTo(i); select(i); } renderAttn(); };
-  if (fullFace === i) { if (!wantFull) toggleFull(); return; }
-  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
-  else go();
+function histGo(d) {
+  let n = hpos + d; while (n >= 0 && n < hist.length && hist[n].i === cur() && !hist[n].full) n += d;   // skip where you already are
+  if (n < 0 || n >= hist.length) { toast(d < 0 ? 'nothing to go back to yet' : 'nothing further forward'); return; }
+  hpos = n; const c = hist[n]; if (c.i !== frontFace()) histNav = performance.now() + 3000;
+  openFace(c.i, c.full); toast(`${d < 0 ? 'back' : 'forward'} to face ${c.i + 1}  ·  ${n + 1} of ${hist.length}`);
 }
 function jumpTo(i) {                                                     // go to a waiting face and straight in, remembering exactly where you were
   const here = fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace()); if (here === i) return;
-  backStack.push({ i: here, full: fullFace >= 0 }); if (backStack.length > 12) backStack.shift(); openFace(i, true);
+  if (hpos < 0 || hist[hpos].i !== here) noteVisit(here); hist[hpos].full = fullFace >= 0; openFace(i, true);   // back returns exactly here
 }
 function jumpNext() {                                                    // oldest waiting first; nothing waiting = go back
   const here = fullFace >= 0 ? fullFace : selFace;
   const w = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
   if (w.length) jumpTo(w[0]); else goBack();
 }
-function goBack() { let c = backStack.pop(); while (c && c.i === cur() && !c.full) c = backStack.pop();   // skip entries for where you already are
-  if (!c) { toast('nothing to go back to yet'); return; } backNav = performance.now() + 3000; openFace(c.i, c.full); toast(`back to face ${c.i + 1}`); }
+function goBack() { histGo(-1); }
+function goForward() { histGo(1); }
 
 // ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
 // working for me"). The browser's own colour input may not open inside the app, so this is our own grid: 8 hues × 4 (bright, light,
@@ -940,7 +935,7 @@ addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwis
 // the one you want (the server reports the raw number back), and a ⚠ when two actions share a button. The hand-back button is the
 // server's own setting (it has to work while the page isn't listening) and keeps its own change link up top.
 const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (your home face, set above)'],
-  ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'back to where you were'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4'], ['quickref', 'quick reference card']];
+  ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'history back'], ['forward', 'history forward'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4'], ['quickref', 'quick reference card']];
 let DEVICE = null;                                                       // {name, vid, pid} from the server once a 3D mouse is open
 // ---------- PER-MODEL LAYOUTS (09:55, a research pass over three independent sources that agree: Blender GHOST_NDOFManager.cc, the Linux
 // spacenavd driver src/dev.c, PySpaceMouse devices.toml; all read buttons from HID report 3, bit = button # − 1). labels: printed label
@@ -952,7 +947,7 @@ const L_TWO = { 1: 'Left', 2: 'Right' };
 const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
 const LAYOUTS = {
   c621: { model: 'Spaceball 5000', roll: 'tilt', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
-          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
+          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 10, quickref: 11, back: 12, forward: 5 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
   c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
   c62f: { model: 'SpaceMouse Wireless (receiver)', labels: L_TWO, preset: { full: 1, jump: 2 } }, c63a: { model: 'SpaceMouse Wireless (Bluetooth)', labels: L_TWO, preset: { full: 1, jump: 2 } },
@@ -1007,8 +1002,8 @@ qref.addEventListener('mousedown', e => { if (e.target === qref) showQuickRef(fa
 function showQuickRef(on) {
   if (!on) { qref.classList.remove('on'); qref.replaceChildren(); return; }
   const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, h = (prefs.homeFace ?? 0) + 1;
-  const SHORT = { select: ['Select', 'typing goes here'], full: ['Full screen', 'on / off'], home: [`Home ⌂`, `face ${h}`], jump: ['Jump in', 'oldest waiting'],
-    back: ['Back', 'where you were'], quickref: ['This card', 'press again to close'] };
+  const SHORT = { select: ['Select', 'typing goes here'], full: ['Full screen', 'on / off'], home: [`Home ⌂`, `face ${h}`], jump: ['Jump in', 'oldest waiting · else history back'],
+    back: ['History back', 'faces you were on'], forward: ['History forward', 'up the list again'], quickref: ['This card', 'press again to close'] };
   [1, 2, 3, 4].forEach(g => { SHORT['color' + g] = [colourName(prefs.palette[g - 1]).replace(/\s*\(.*\)$/, '').replace(/^./, c => c.toUpperCase()), `group ${g} · tap / hold`]; });
   const count = L ? Math.max(...Object.keys(L.labels).map(Number)) : Math.max(12, ...Object.values(B).filter(Boolean), tog);
   const keys = [...Array(count)].map((_, i) => i + 1).filter(n => !L || L.labels[n]).map(n => {
@@ -1018,7 +1013,7 @@ function showQuickRef(on) {
   const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
   const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face']]
                     : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out']];
-  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J · B', 'jump in · back'], ['[ · ]', 'quarter twist'], ['/', 'this card']];
+  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['/', 'this card']];
   const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
   qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
     `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
@@ -1068,7 +1063,7 @@ function renderPrefs() {
       rng('id="p-glow" min="0" max="2" step="0.1"', 'Glow strength', prefs.glow ?? 1) +
       tgl('p-cluster', 'Group faces by colour', 'Same colours sit next to each other. Moves faces, never sessions — with an undo.', prefs.cluster)) +
     sec('attention',
-      `<div class="note">When a Claude session on another face needs you, that face breathes a glow in its own colour and shows ◆!. Jump: Ctrl+Option+J or your jump button · back: Ctrl+Option+B.</div>` +
+      `<div class="note">When a Claude session on another face needs you, that face breathes a glow in its own colour and shows ◆!. Jump: Ctrl+Option+J or your jump button · history back / forward: Ctrl+Option+B / F.</div>` +
       tgl('p-fin', 'Also when a session finishes its turn', 'Not just approvals and questions.', prefs.attnFinished !== false) +
       tgl('p-quiet', 'Quiet', 'No list in the corner; faces still glow.', prefs.quiet) +
       `<div class="two">` + fld('Fade toward white over (minutes)', `<input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin ?? 15}">`, '0 = never fade.') +
@@ -1310,7 +1305,7 @@ function renderMotion() {
 function helpSections() {
   const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, k = n => `[${btnLabel(n)}]`;
   const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: `home: back to your home face (${(prefs.homeFace ?? 0) + 1}), square`,
-    jump: 'jump to the oldest face waiting for you, zoomed in', back: 'back to exactly where you were',
+    jump: 'jump to the oldest face waiting for you, zoomed in', back: 'history back: the faces you were on, newest first', forward: 'history forward: up the list again',
     color1: 'colour group 1: tap = next face · hold = paint the face in front', color2: 'colour group 2: tap = next face · hold = paint',
     color3: 'colour group 3: tap = next face · hold = paint', color4: 'colour group 4: tap = next face · hold = paint', quickref: 'the quick reference card (this map, at a glance)' };
   const count = L ? Math.max(...Object.keys(L.labels).map(Number), 0) : Math.max(...Object.values(B).filter(Boolean), tog, 6);
@@ -1325,14 +1320,14 @@ function helpSections() {
         'let go = it settles on the nearest screen (feel: Motion tab)'] : ['classic control (cube): one push = one face', 'twist = side to side · tilt = over the top', 'push down = select · again = full screen · pull up = out']],
     ['COLOUR GROUPS', [`${k(B.color1)} ${k(B.color2)} ${k(B.color3)} ${k(B.color4)} on the ball = groups 1–4`, 'tap = go to the next face in that group', 'hold = paint the face in front (hold again = clear)',
         'keyboard: Ctrl+Option+7 8 9 0 · tap = next · double-tap = paint', 'colours + names: Colours tab · "group by colour" puts them side by side']],
-    ['WHEN A SESSION NEEDS YOU', ['the face breathes a glow in its own colour and shows ◆!', 'a list top-right names it; click an entry to go there', `${k(B.jump)} = jump in · ${k(B.back)} = back · keys Ctrl+Option+J / B`,
+    ['WHEN A SESSION NEEDS YOU', ['the face breathes a glow in its own colour and shows ◆!', 'a list top-right names it; click an entry to go there', `${k(B.jump)} = jump in · ${k(B.back)} ${k(B.forward)} = history back / forward · keys Ctrl+Option+J, B, F`,
         'it clears only when the session moves on, never just by looking', 'the longer it waits, the whiter the glow (Attention tab)']],
     ['THE SOLID', ['rest on a face and it rises out of the solid after a moment (the offering)', 'roll away and it sinks back as the next comes around',
         'shapes: cube (full-size screens), cuboctahedron, rhombicuboctahedron (18, an overview)', 'parked sessions keep running; Look tab puts them back']],
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
     ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
-    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · B = back', 'Esc = close settings']],
+    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
     ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',
