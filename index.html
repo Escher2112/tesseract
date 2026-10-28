@@ -737,6 +737,17 @@ function tint() {                                                        // the 
 }
 setInterval(tint, 2000);
 const backStack = [];
+// 13:55 Chris: "go into Tez's face, pop back out, go to github, press A: 'nothing to go back to'". History was only written by jumpTo,
+// so moving yourself (rolling, clicking, colours, home) left nothing to go back to. Now EVERY face you land on is remembered, like a
+// browser's back button: noteVisit() runs when the solid locks onto a face (physics) and pushes the face you were on before. While
+// back is travelling, its own landing is not recorded, so pressing back again walks further back instead of ping-ponging.
+let lastVisit = -1, backNav = 0;
+function noteVisit(i) {
+  if (performance.now() < backNav) { backNav = 0; lastVisit = i; return; }
+  if (lastVisit >= 0 && lastVisit !== i && (!backStack.length || backStack[backStack.length - 1].i !== lastVisit)) {
+    backStack.push({ i: lastVisit, full: false }); if (backStack.length > 12) backStack.shift(); }
+  lastVisit = i;
+}
 // 09:46 Chris: with only the Spaceball it took "button 6, navigate and press, button 6 back, pull face to focus, deal with it, push out,
 // button 6 again, repeat". Now ONE press of jump rolls to the oldest waiting face AND zooms in; ONE press of back returns exactly where
 // he was. openFace sequences the zooms: leaving one full-screen face finishes its zoom-out before rolling and zooming into the next
@@ -756,7 +767,8 @@ function jumpNext() {                                                    // olde
   const w = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
   if (w.length) jumpTo(w[0]); else goBack();
 }
-function goBack() { const c = backStack.pop(); if (!c) { toast('nothing to go back to'); return; } openFace(c.i, c.full); }
+function goBack() { let c = backStack.pop(); while (c && c.i === cur() && !c.full) c = backStack.pop();   // skip entries for where you already are
+  if (!c) { toast('nothing to go back to yet'); return; } backNav = performance.now() + 3000; openFace(c.i, c.full); toast(`back to face ${c.i + 1}`); }
 
 // ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
 // working for me"). The browser's own colour input may not open inside the app, so this is our own grid: 8 hues × 4 (bright, light,
@@ -1245,7 +1257,7 @@ function physics(dt, spinV, tiltV, pushing) {
     Q = qNorm(qMul(rotVecQ(V.mul(W, h)), Q)); }
   if (!held && Math.hypot(...e) < 0.004 && Math.hypot(...W) < 0.03) {   // locked onto a screen
     Q = Qt; W = [0, 0, 0]; cmdTarget = false;
-    if (!settled) { settled = true; present(Q); const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } }   // (09:18: re-upright on EVERY settle; a 180° drag back onto the same face left it upside down)
+    if (!settled) { settled = true; present(Q); const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } noteVisit(f); }   // (09:18: re-upright on EVERY settle; a 180° drag back onto the same face left it upside down)
   } else if (!held) settled = false;
 }
 let actx = null;
