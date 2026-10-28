@@ -198,8 +198,8 @@ es.onmessage = e => {
   else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
   else if (m.k === 'sbb') sbButtons(m.m);
   else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
-  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; savePrefs(); renderPrefs(); toast(`you pressed button #${m.b} (${btnLabel(m.b)}): ${(BUTTON_ACTIONS.find(a => a[0] === m.target) || [, m.target])[1]} is on it now`); }
-  else if (m.k === 'device') { DEVICE = { name: m.name, vid: m.vid, pid: m.pid }; renderPrefs(); }
+  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; if (DEVICE) prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs(); toast(`you pressed button #${m.b} (${btnLabel(m.b)}): ${(BUTTON_ACTIONS.find(a => a[0] === m.target) || [, m.target])[1]} is on it now`); }
+  else if (m.k === 'device') adoptDevice({ name: m.name, vid: m.vid, pid: m.pid });
   else if (m.k === 'attn') { const a = att[m.f], fresh = a.s !== 'needs' && m.s === 'needs'; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn();
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
@@ -788,12 +788,47 @@ addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwis
 const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (face 1, straight)'],
   ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'back to where you were'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4']];
 let DEVICE = null;                                                       // {name, vid, pid} from the server once a 3D mouse is open
-const BUTTON_LABELS = { 'c621': ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'] };   // printed labels by HID button #; UNVERIFIED (research pending)
-function btnLabel(n) { const L = DEVICE && BUTTON_LABELS[DEVICE.pid]; return L && L[n - 1] ? `${L[n - 1]}` : `#${n}`; }
+// ---------- PER-MODEL LAYOUTS (09:55, a research pass over three independent sources that agree: Blender GHOST_NDOFManager.cc, the Linux
+// spacenavd driver src/dev.c, PySpaceMouse devices.toml; all read buttons from HID report 3, bit = button # − 1). labels: printed label
+// by button # · preset: a default map for that model (button #s). Nothing on Esc/Alt/Shift/Ctrl (people hold those). Not tested on real
+// hardware except Chris's Spaceball 5000 — one "change" press confirms any of it. SpacePilot Pro: sources DISAGREE on its numbered keys
+// → numbers only, no preset. A model's map is remembered per device (prefs.buttonsByDevice); a preset only fills a model never seen before.
+const sparse = o => o;                                                   // {button#: label}
+const L_TWO = { 1: 'Left', 2: 'Right' };
+const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
+const LAYOUTS = {
+  c621: { model: 'Spaceball 5000', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
+          preset: { select: 1, full: 2, home: 3, color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 } },
+  c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c62f: { model: 'SpaceMouse Wireless (receiver)', labels: L_TWO, preset: { full: 1, jump: 2 } }, c63a: { model: 'SpaceMouse Wireless (Bluetooth)', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c627: { model: 'SpaceExplorer', labels: Object.fromEntries(['1', '2', 'T', 'L', 'R', 'F', 'Esc', 'Alt', 'Shift', 'Ctrl', 'Fit', 'Panel', '+', '−', '2D'].map((l, i) => [i + 1, l])),
+          preset: { select: 1, full: 2, home: 11, jump: 3, back: 5, color1: 4, color2: 6, color3: 13, color4: 14 } },
+  c625: { model: 'SpacePilot', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', 'T', 'L', 'R', 'F', 'Esc', 'Alt', 'Shift', 'Ctrl', 'Fit', 'Panel', 'Zoom ±', 'Zoom ±', 'Dominant', '3D Lock', 'Config'].map((l, i) => [i + 1, l])),
+          preset: { select: 1, full: 2, home: 15, jump: 3, back: 4, color1: 7, color2: 8, color3: 9, color4: 10 } },
+  c629: { model: 'SpacePilot Pro', labels: {} },                       // sources disagree on its numbered keys: numbers only, learn by pressing
+  c62b: { model: 'SpaceMouse Pro', labels: L_PRO }, c631: { model: 'SpaceMouse Pro Wireless', labels: L_PRO }, c632: { model: 'SpaceMouse Pro Wireless (receiver)', labels: L_PRO },
+  c638: { model: 'SpaceMouse Pro Wireless (BT)', labels: L_PRO }, c652: { model: 'Universal Receiver', labels: L_PRO },
+  c633: { model: 'SpaceMouse Enterprise', labels: Object.assign({}, L_PRO, Object.fromEntries([...Array(10)].map((_, i) => [13 + i, String(i + 1)])), { 11: 'Iso' }),
+          preset: { select: 13, full: 14, home: 2, jump: 15, back: 16, color1: 17, color2: 18, color3: 19, color4: 20 } },
+};
+for (const k of ['c62b', 'c631', 'c632', 'c638', 'c652']) LAYOUTS[k].preset = { select: 13, full: 14, home: 2, jump: 15, back: 16, color1: 3, color2: 5, color3: 6, color4: 9 };
+const devLayout = () => DEVICE && LAYOUTS[DEVICE.pid];
+function btnLabel(n) { if (!n) return '—'; const L = devLayout(); return L && L.labels[n] ? `${L.labels[n]}` : `#${n}`; }
+function adoptDevice(d) {                                                // a 3D mouse appeared: give it ITS map (yours, if you ever set one)
+  DEVICE = d; const pid = d.pid, all = Object.assign({}, prefs.buttonsByDevice || {});
+  if (!prefs.buttonsDevice) { all[pid] = prefs.buttons; prefs.buttonsDevice = pid; }             // first time: what you have IS this device's map
+  else if (prefs.buttonsDevice !== pid) { all[prefs.buttonsDevice] = prefs.buttons; prefs.buttonsDevice = pid;
+    const none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
+    prefs.buttons = Object.assign({}, all[pid] || Object.assign(none, (LAYOUTS[pid] || {}).preset || DEF.buttons)); toast(`${(LAYOUTS[pid] || {}).model || d.name}: its own button map`); }
+  all[pid] = prefs.buttons; prefs.buttonsByDevice = all; savePrefs(); renderPrefs();
+}
 function buttonsTable() {
   const B = prefs.buttons, tog = +document.getElementById('tog').textContent || 6, used = {};
   Object.values(B).concat([tog]).forEach(n => { used[n] = (used[n] || 0) + 1; });
-  return `<b>BALL BUTTONS</b>${DEVICE ? ` (your device: ${DEVICE.name} · ${DEVICE.vid}:${DEVICE.pid})` : ''}<br>` +
+  const L = devLayout();
+  return `<b>BALL BUTTONS</b>${DEVICE ? ` (your device: ${L ? L.model : DEVICE.name} · ${DEVICE.vid}:${DEVICE.pid})` : ''}` +
+    (L && L.preset ? ` <a href="#" id="p-preset">use this model's suggested map</a>` : '') + `<br>` +
     BUTTON_ACTIONS.map(([k, t]) => `${t}: <b>${btnLabel(B[k])}</b>${used[B[k]] > 1 ? ' ⚠ shared' : ''} <a href="#" data-learn="${k}">change</a>`).join('<br>') +
     `<br>hand back to your Mac: <b>${btnLabel(tog)}</b>${used[tog] > 1 ? ' ⚠ shared' : ''} (change it at the top)` +
     `<br><i>change = click it, then press the ball button you want</i><br>`;
@@ -841,6 +876,9 @@ function renderPrefs() {
   glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
   document.getElementById('p-motes').onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); };
   const mp = document.getElementById('p-mpal'); if (mp) mp.onchange = e => { prefs.matrixPalette = e.target.value; savePrefs(); applyPrefs(); };
+  const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
+    prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();
+    toastUndo(`${devLayout().model}: suggested map applied`, () => { prefs.buttons = was; prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: was }); savePrefs(); renderPrefs(); }); };
   el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
   document.getElementById('p-glow').oninput = e => { prefs.glow = +e.target.value; document.documentElement.style.setProperty('--glow', prefs.glow); };

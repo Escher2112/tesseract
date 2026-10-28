@@ -184,7 +184,7 @@ def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
 PAGE_BUTTONS = {"select", "full", "home", "jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
-PREF_KEYS = {"material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright"}
+PREF_KEYS = {"buttonsByDevice", "buttonsDevice", "material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
@@ -222,7 +222,9 @@ def device_loop(ids, parse):
             time.sleep(1.0)
 def parse_sb(r):
     if r[0] == 3 and len(r) >= 3:
-        m = r[1] | (r[2] << 8); pressed = m & ~sb["mask"]; sb["mask"] = m
+        # 09:55 research: SpaceMouse Pro / Enterprise put buttons on bits up to 26 (Esc/Alt/Shift/Ctrl/Lock 22–26), so read up to 4 bytes
+        # (32 buttons), not 2. Sources: Blender GHOST_NDOFManager.cc, spacenavd dev.c, PySpaceMouse devices.toml (all report id 3).
+        m = int.from_bytes(bytes(r[1:5]), "little"); pressed = m & ~sb["mask"]; sb["mask"] = m
         if pressed and sb["learn"] and sb["learn"] is not True:        # learning a button for the page (jump / back / a colour)
             b = (pressed & -pressed).bit_length(); send({"k": "learned", "target": sb["learn"], "b": b}); sb["learn"] = False; return
         if pressed and sb["learn"]:                                   # ⚙ "change": the next button pressed becomes the hand-back button
@@ -232,13 +234,13 @@ def parse_sb(r):
         if pressed & tbit:
             sb["free"] = not sb["free"]; sb["reopen"] = True
             send({"k": "sbfree", "free": sb["free"]}); return
-        r = [r[0], (m & ~tbit) & 0xff, ((m & ~tbit) >> 8) & 0xff]       # the cube never sees the hand-back button
+        r = [r[0]] + list((m & ~tbit).to_bytes(4, "little"))            # the cube never sees the hand-back button
     if sb["free"]: return                                              # handed back to the Mac: the cube ignores it
     if sb.get("vendor") == 0x256f and r[0] == 1 and len(r) >= 13:      # newer (0x256f) models: push AND twist in one 12-byte report
         v = struct.unpack("<6h", bytes(r[1:13]))
         send({"k": "sb", "a": "t", "v": list(v[:3])}); send({"k": "sb", "a": "r", "v": list(v[3:])}); return
     if r[0] in (1, 2) and len(r) >= 7: send({"k": "sb", "a": "t" if r[0] == 1 else "r", "v": list(struct.unpack("<3h", bytes(r[1:7])))})
-    elif r[0] == 3 and len(r) >= 3: send({"k": "sbb", "m": r[1] | (r[2] << 8)})
+    elif r[0] == 3 and len(r) >= 3: send({"k": "sbb", "m": int.from_bytes(bytes(r[1:5]), "little")})
 def parse_knob(r): send({"k": "knob", "t": r[1] - 256 if r[1] > 127 else r[1], "b": r[0]})
 
 class H(BaseHTTPRequestHandler):
