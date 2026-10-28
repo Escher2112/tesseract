@@ -1,0 +1,6 @@
+mac/build/
+*.bak-*
+*.v1-*
+__pycache__/
+.DS_Store
+WHAT-THIS-IS.md
