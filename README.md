@@ -21,6 +21,13 @@ session title), but every face is just a normal shell.
 **macOS (13+):** `mac/build.sh` → open `mac/build/3D Terminal.app`. Needs Python 3 and the Xcode command-line tools; the build makes a
 private Python with `hidapi` for the Spaceball / knob.
 
+**PowerMate on macOS: turn on Input Monitoring, or the knob stays dead.** macOS treats the PowerMate as a mouse, and an app can only
+read a mouse after you allow it in **System Settings → Privacy & Security → Input Monitoring**. Without it the knob silently does
+nothing in the cube (it keeps moving your pointer instead) and no error shows up anywhere. Add **3D Terminal** there and turn it on; if
+the list also shows **Python**, turn that on too (the app reads the devices through its own Python helper). Then quit and reopen the
+app. The app is not signed with a developer certificate, so after you rebuild it macOS may forget the permission: if the knob goes
+dead after an update, remove 3D Terminal from the list and add it again. The Spaceball needs none of this.
+
 **Linux:** `pip install hidapi` (optional, for the devices), then `linux/run.sh`. It opens the cube in your browser. For device access,
 give your user read/write on `/dev/hidraw*` with a udev rule. The Linux path is new and lightly tested.
 
