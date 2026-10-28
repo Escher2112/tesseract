@@ -26,6 +26,15 @@ give your user read/write on `/dev/hidraw*` with a udev rule. The Linux path is 
 
 **Anywhere (browser):** `python3 server.py` and open the URL it prints.
 
+## Reopen your sessions (Claude Code)
+Quit with Claude running on some faces, and next time each of those faces resumes the same conversation (same folder, same flags).
+One-time setup: copy `hooks/claude-session-hook.py` to `~/.config/3d-terminal/` and add it as a **SessionStart** hook in
+`~/.claude/settings.json`:
+
+    {"matcher": "", "hooks": [{"type": "command", "command": "/usr/bin/python3 -I ~/.config/3d-terminal/claude-session-hook.py", "timeout": 5}]}
+
+The hook only acts inside a 3D Terminal face; everywhere else it does nothing. Faces where you'd already closed Claude stay plain shells.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).

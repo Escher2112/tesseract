@@ -8,7 +8,7 @@ Run:  python3 -I server.py [--port N]      → open the URL it prints (pip insta
   POST /in?k=KEY&f=N          body = keystrokes for face N (a dead shell is restarted first)
   POST /resize?k=KEY&f=N&c=COLS&r=ROWS
 Only 127.0.0.1, only with the key, only with the right Host header. Stopping this server ends every shell (and any claude in them)."""
-import codecs, fcntl, json, os, pty, queue, secrets, signal, struct, sys, termios, threading, time
+import codecs, fcntl, json, os, pty, queue, secrets, shlex, signal, struct, subprocess, sys, termios, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -23,23 +23,44 @@ def send(obj):
         for q in listeners: q.put(msg)
 
 # ---------- the shells: clean environment (no Anthropic keys, nothing that tells claude it is nested inside this session)
-def clean_env():
+def clean_env(face=None):
     env = {k: v for k, v in os.environ.items() if not (k.startswith("ANTHROPIC_") or k == "CLAUDECODE" or k.startswith("CLAUDE_CODE_")
                                                         or k in ("CLAUDE_PID", "CLAUDE_EFFORT"))}
     env.update(TERM="xterm-256color", COLORTERM="truecolor", SESSION_CUBE="1")
+    if face is not None: env["SESSION_CUBE_FACE"] = str(face + 1)   # 1-6: lets the Claude hook record which conversation is on which face
     return env
 
 class Shell:
     def __init__(self, face):
         self.face, self.buf, self.lock, self.pid, self.fd, self.size = face, bytearray(), threading.Lock(), None, None, (24, 80)
+        self.restored = False
     def alive(self): return self.fd is not None
     def start(self):
         pid, fd = pty.fork()
         if pid == 0:                                                   # child: a login zsh in Chris's home
             sh = os.environ.get("SHELL") or ("/bin/zsh" if os.path.exists("/bin/zsh") else "/bin/bash")   # Mac or Linux
-            os.chdir(os.path.expanduser("~")); os.execve(sh, ["-" + os.path.basename(sh), "-l"], clean_env())
+            os.chdir(os.path.expanduser("~")); os.execve(sh, ["-" + os.path.basename(sh), "-l"], clean_env(self.face))
         self.pid, self.fd = pid, fd; self.resize(*self.size)
         threading.Thread(target=self.reader, daemon=True).start()
+        if not self.restored: self.restored = True; threading.Thread(target=self.restore, daemon=True).start()
+    # 23:39 Chris: reopen the same sessions after quitting. hooks/claude-session-hook.py records face-N.json when Claude starts on a face;
+    # at quit we keep the record only for faces that still had Claude running (stop_and_remember); here we type the resume command back in.
+    def restore(self):
+        rec = os.path.join(FACES_DIR, f"face-{self.face + 1}.json")
+        try: r = json.load(open(rec))
+        except Exception: return
+        if not r.get("active") or not r.get("session_id"): return
+        parts = r.get("args", "claude").split()
+        keep, skip = [], False
+        for a in parts:                                                   # drop any old --resume/--continue, keep the other flags
+            if skip: skip = False; continue
+            if a in ("--resume", "-r"): skip = True; continue
+            if a in ("--continue", "-c") or a.startswith("--resume="): continue
+            keep.append(a)
+        if not keep or os.path.basename(keep[0]) != "claude": keep = ["claude"] + keep[1:]
+        cmd = f"cd {shlex.quote(r.get('cwd') or '~')} && " + " ".join(shlex.quote(a) for a in keep) + f" --resume {shlex.quote(r['session_id'])}"
+        time.sleep(1.5)                                                   # let the login shell finish starting
+        if self.alive(): os.write(self.fd, (cmd + "\r").encode())
     def reader(self):
         dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while True:
@@ -69,7 +90,27 @@ class Shell:
             except ProcessLookupError: pass
     def replay(self):
         with self.lock: return self.buf.decode("utf-8", errors="replace")
+FACES_DIR = os.path.expanduser("~/.config/3d-terminal/faces")
 shells = [Shell(i) for i in range(FACES)]
+def claude_running_under(pid):                                       # is a claude process anywhere below this shell?
+    try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
+    except Exception: return False
+    kids = {}
+    for row in rows:
+        f = row.split(None, 2)
+        if len(f) == 3: kids.setdefault(int(f[1]), []).append((int(f[0]), os.path.basename(f[2])))
+    todo = [pid]
+    while todo:
+        for c, name in kids.get(todo.pop(), []):
+            if name == "claude": return True
+            todo.append(c)
+    return False
+def stop_and_remember():                                             # before the shells close: which faces had Claude running?
+    for s in shells:
+        rec = os.path.join(FACES_DIR, f"face-{s.face + 1}.json")
+        if not os.path.exists(rec): continue
+        try: r = json.load(open(rec)); r["active"] = bool(s.pid and claude_running_under(s.pid)); json.dump(r, open(rec, "w"))
+        except Exception: pass
 
 # ---------- the Spaceball + PowerMate (exclusive while this runs, so macOS stops scrolling/pointing with them)
 # Button 6 (Chris 23:12): hand the Spaceball back to the Mac as an ordinary 3D mouse, and press 6 again to take it back.
@@ -186,6 +227,7 @@ class H(BaseHTTPRequestHandler):
         self.send_response(204); self.end_headers()
 
 def stop(*_):
+    stop_and_remember()
     for s in shells:
         if s.pid:
             try: os.kill(s.pid, signal.SIGHUP)
