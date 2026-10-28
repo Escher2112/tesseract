@@ -105,6 +105,13 @@ obsidian, jade, translucent jade, translucent brass; light: a neutral studio roo
 moods. Untick "real 3D materials" for the lighter CSS look. Materials and lights are plain data (standard metallic-roughness PBR, no
 custom shaders), so a native Metal / Vulkan version can reuse them as they are.
 
+## Mini-browser faces (macOS app)
+⚙ → BROWSER ON A FACE turns the face in front into a small real browser (Safari's engine, inside the app; ChatGPT and Grok are one
+click). On the solid the face shows a live picture of the page; go full screen and the real page is there, with an address bar (back,
+forward, reload, type an address or a search). ⌘⌥↩ goes back to the cube. Logins are kept by the app, so you sign in once. Sign-in
+popups (Google, Apple, X) open in a small linked window; whether a given provider allows sign-in inside an app's browser is up to them.
+The face's terminal keeps running underneath; "back to a terminal" in ⚙ brings it back.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).
