@@ -211,6 +211,7 @@
   #drum.on { display: flex; animation: qIn .18s ease-out both; }
   .dttl { white-space: nowrap; font: 600 13px Didot, "Bodoni 72", Optima, Georgia, serif; letter-spacing: .42em; }
   .dttl span { margin-right: -.42em; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .dstage3d { height: auto !important; width: auto !important; perspective: none !important; } .dstage3d canvas { display: block; }
   .dstage { perspective: 1400px; height: calc(var(--dh) * 2.4); width: calc(var(--dw) + 200px); display: flex; align-items: center; justify-content: center; }
   .drot { position: relative; width: var(--dw); height: var(--dh); transform-style: preserve-3d; }
   .dface { position: absolute; inset: 0; box-sizing: border-box; display: flex; align-items: center; gap: 16px; padding: 0 22px; backface-visibility: hidden;
@@ -1050,8 +1051,17 @@ function drumItems() {
     why: waiting(i) ? att[i].r : (i === cur() ? 'you are here' : 'not waiting'), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] })) };
 }
 function showDrum(on) {
-  if (!on) { drumEl.classList.remove('on'); cancelAnimationFrame(drum.raf); drumEl.replaceChildren(); return; }
+  if (!on) { drumEl.classList.remove('on'); cancelAnimationFrame(drum.raf); if (drum.gl && window.GL) window.GL.drumClose(); drum.gl = false; drumEl.replaceChildren(); return; }
   showQuickRef(false); const { waiting: anyW, rows } = drumItems();
+  // 14:07 Chris: "a crayon drawing… model it in actual 3D… obsidian, not cardboard". With the WebGL renderer on, gl.js draws a real
+  // obsidian reel with chrome end caps (GL.drumOpen / drumRender); the CSS drum below stays only as the fallback when WebGL is off.
+  drum.gl = !!(window.GL && window.GL.drumOpen && prefs.gl !== false);
+  if (drum.gl) { drum.items = rows; drum.n = rows.length; drum.p = 0; drum.v = 0;
+    drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `WAITING · ${rows.length}` : 'NOTHING WAITING · ALL SESSIONS'}</span></div><div class="dstage dstage3d"></div>` +
+      `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div>`;
+    window.GL.drumOpen(drumEl.querySelector('.dstage3d'), rows.map(it => ({ no: it.i + 1, title: it.title, age: it.age, color: it.g ? prefs.palette[it.g - 1] : null,
+      sub: it.why + (it.g ? ' · ' + colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : '') })));
+    drumEl.classList.add('on'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame); return; }
   drum.items = rows; drum.n = Math.max(rows.length + 2, 8);   // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends) drum.p = 0; drum.v = 0; drum.front = -1;
   const n = drum.n, dh = 84, dw = Math.min(640, innerWidth - 200), r = dh / (2 * Math.tan(Math.PI / n)), R = dh / (2 * Math.sin(Math.PI / n)), al = 360 / n;
   const poly = [...Array(n)].map((_, j) => { const f = (j + 0.5) * 2 * Math.PI / n; return `${(50 + 50 * Math.cos(f)).toFixed(2)}% ${(50 + 50 * Math.sin(f)).toFixed(2)}%`; }).join(',');
@@ -1073,6 +1083,7 @@ function drumFrame(now) {
   let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
   if (drum.p < 0 || drum.p > hi) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
   if (crossed) clickSound(2600, 0.16);
+  if (drum.gl) { window.GL.drumRender(drum.p); drum.raf = requestAnimationFrame(drumFrame); return; }
   const n = drum.n, al = 360 / n, rot = document.getElementById('drot'); if (rot) rot.style.transform = `rotateX(${drum.p * al}deg)`;
   const fi = drumIdx(drum);
   drumEl.querySelectorAll('.dface').forEach(el => { const k = +el.dataset.k, b = ((k - drum.p) % n + n + n / 2) % n - n / 2;
@@ -1081,7 +1092,7 @@ function drumFrame(now) {
 }
 function drumGo() { const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
 drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY * 0.012; }, { passive: false });
-drumEl.addEventListener('mousedown', e => { const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
+drumEl.addEventListener('mousedown', e => { if (drum.gl) { if (e.target.closest('.dstage3d')) drumGo(); else showDrum(false); return; } const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
   if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });
 addEventListener('keydown', e => { if (!drumOpen()) return; const k = e.key;
   if (k === 'Escape') showDrum(false); else if (k === 'Enter') drumGo(); else if (k === 'ArrowDown') drum.v += 5; else if (k === 'ArrowUp') drum.v -= 5; else return;

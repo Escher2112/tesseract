@@ -307,5 +307,112 @@ function loop(now) {
   scene.backgroundIntensity = bgLevel; if (motes) motes.material.opacity = 0.45 * bgLevel; if (sparkle) sparkle.material.opacity *= bgLevel;
   driftSpace(dt); composer.render();
 }
-try { init(); window.GL = { apply, MATERIALS, LIGHTS, QUALITY: Object.keys(QUALITY) }; window.dispatchEvent(new Event('gl-ready')); }
+// ---------- THE WAITING DRUM (14:07 Chris: "this looks like a crayon drawing compared to what we have… needs to be proper 3D… the faces
+// are *obsidian*, not cardboard, just like the main app" + "obsidian faceted cylinder with chrome end cap bearings"). Its own small
+// renderer on a canvas inside the drum overlay (the main canvas sits under the dimmed backdrop). index.html owns the rows and the physics
+// and calls GL.drumRender(p) every frame; this only draws. The prism is a REEL: 10 obsidian facets (chamfered, normals blended across each
+// edge like the body), the facet in front shows row round(p) and the others the rows around it, retextured as they come round, so any
+// number of sessions fits one drum of a fixed size. Ends: turned chrome flanges + hex bolts that turn with it, a fixed chrome bearing
+// (outer race, dark seal, hub, axle stub) that doesn't. Same MATERIALS data as the body: obsidian is the body's obsidian.
+const DRUM = { N: 10, h: 88, ch: 3.5 };
+let dR = null;
+function drumRowTex(row, w, h) {
+  const c = document.createElement('canvas'), H = 192, Wc = Math.round(H * w / h); c.width = Wc; c.height = H; const x = c.getContext('2d');
+  x.fillStyle = row.color || '#4a4d55'; x.beginPath(); x.roundRect(26, H * 0.2, 9, H * 0.6, 4.5); x.fill();
+  const g = x.createLinearGradient(0, H * 0.22, 0, H * 0.78); g.addColorStop(0, '#ffffff'); g.addColorStop(0.45, '#c9ccd3'); g.addColorStop(0.55, '#8a8e97'); g.addColorStop(1, '#e6e8ec');
+  x.fillStyle = g; x.font = `600 ${H * 0.5}px Didot, "Bodoni 72", Georgia, serif`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(String(row.no), 112, H * 0.53);
+  x.textAlign = 'left'; x.textBaseline = 'alphabetic'; const tx = 200, aw = row.age ? x.measureText(row.age).width + 60 : 0;
+  const fit = (t, max) => { if (x.measureText(t).width <= max) return t; while (t.length > 1 && x.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
+  x.font = `600 ${H * 0.25}px -apple-system, BlinkMacSystemFont, system-ui, sans-serif`; x.fillStyle = '#eef0f3'; x.fillText(fit(row.title, Wc - tx - 260), tx, H * 0.47);
+  x.font = `${H * 0.17}px -apple-system, BlinkMacSystemFont, system-ui, sans-serif`; x.fillStyle = '#9a9ea7'; x.fillText(fit(row.sub, Wc - tx - 260), tx, H * 0.74);
+  if (row.age) { x.textAlign = 'right'; x.fillStyle = '#8d919a'; x.font = `${H * 0.16}px -apple-system, BlinkMacSystemFont, system-ui, sans-serif`; x.fillText(row.age, Wc - 34, H * 0.58); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+function drumBuild(W) {
+  const { N, h, ch } = DRUM, al = 2 * Math.PI / N, r = h / (2 * Math.tan(al / 2)), Rc = r / Math.cos(al / 2), Rf = Rc * 1.07, D = dR;
+  D.W = W; D.r = r; D.al = al; const scene = D.scene; scene.clear();
+  // 14:11 Chris's sketch: "held in a fixture that rises out of the bottom of the screen, and the bearings are inset in each side". The
+  // canvas spans the window's width at the bottom; everything hangs off one rig that rises into place when the drum opens.
+  const A = Rf + 76, chh = Math.round(A + Rf + 110), ay = -chh / 2 + A; D.chh = chh; D.ay = ay;
+  const rig = new THREE.Group(); scene.add(rig); D.rig = rig;
+  const drum = new THREE.Group(); drum.position.set(0, ay, -r); rig.add(drum); D.drum = drum;
+  // the prism, chamfered: cross-section in YZ, facet k's normal (0, sin kα, cos kα); corners between facets cut back by ch
+  const nK = k => new THREE.Vector3(0, Math.sin(k * al), Math.cos(k * al)), cK = j => new THREE.Vector3(0, Math.sin((j + 0.5) * al) * Rc, Math.cos((j + 0.5) * al) * Rc);
+  const pos = [], nor = [], quad = (a, b, na, nb) => {                    // the strip a→b (in YZ) swept along x, normals na at a, nb at b
+    const P = [[-W / 2, a], [W / 2, a], [W / 2, b], [-W / 2, b]].map(([xx, v]) => new THREE.Vector3(xx, v.y, v.z)), Nn = [na, na, nb, nb];
+    let idx = [0, 1, 2, 0, 2, 3]; const fn = P[1].clone().sub(P[0]).cross(P[2].clone().sub(P[0])); if (fn.dot(na.clone().add(nb)) < 0) idx = [0, 2, 1, 0, 3, 2];
+    idx.forEach(i => { pos.push(P[i].x, P[i].y, P[i].z); nor.push(Nn[i].x, Nn[i].y, Nn[i].z); }); };
+  for (let k = 0; k < N; k++) { const A = cK(k - 1), B = cK(k), d = B.clone().sub(A).normalize(), a = A.clone().addScaledVector(d, ch), b = B.clone().addScaledVector(d, -ch);
+    quad(a, b, nK(k), nK(k));
+    const B2 = cK(k), d2 = cK(k + 1).clone().sub(B2).normalize(), a2 = B2.clone().addScaledVector(d2, ch); quad(b, a2, nK(k), nK(k + 1)); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  // obsidian reflects a DARK room (black with a key, a cool fill and a rim), so flat glass reads black with highlights sliding over it,
+  // not a grey mirror of the bright studio; the chrome keeps the bright room (D.env)
+  const obs = makeMaterial('obsidian'); obs.envMap = D.darkEnv; obs.envMapIntensity = 1.6; drum.add(new THREE.Mesh(g, obs));
+  // a lit label on each facet (the reel's window): plane just above the glass, unlit text so it reads on black, dimmed as it turns away
+  D.facets = [];
+  for (let k = 0; k < N; k++) { const n = nK(k), up = new THREE.Vector3(0, Math.cos(k * al), -Math.sin(k * al)), m = new THREE.Mesh(new THREE.PlaneGeometry(W - 30, h - 2 * ch - 6),
+      new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
+    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), up, n)); m.position.copy(n).multiplyScalar(r + 0.6); m.visible = false;
+    drum.add(m); D.facets.push({ m, k, row: -2 }); }
+  // the ends. lathe profiles (r, y): y = distance out from the drum's end. Flange + bolts turn with the drum; the bearing stays put.
+  const chrome = makeMaterial('polished_chrome'), steel = new THREE.MeshPhysicalMaterial({ color: '#c8ccd3', metalness: 1, roughness: 0.28 }),
+    seal = new THREE.MeshPhysicalMaterial({ color: '#16161b', metalness: 0.2, roughness: 0.55, clearcoat: 0.4 });
+  const lathe = pts => new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), 96);
+  const flange = lathe([[0.001, 0], [Rf - 2.5, 0], [Rf, 2.5], [Rf, 8], [Rf - 2.5, 10.5], [Rf * 0.66, 10.5], [Rf * 0.64, 11]]);
+  const bearing = lathe([[Rf * 0.62, 10.6], [Rf * 0.62, 16], [Rf * 0.6, 18], [Rf * 0.55, 18.4], [Rf * 0.53, 17.2], [Rf * 0.4, 17.2], [Rf * 0.38, 18.6],
+    [Rf * 0.3, 20], [Rf * 0.24, 25], [Rf * 0.12, 26.5], [Rf * 0.1, 26.5], [Rf * 0.1, 38], [Rf * 0.085, 40], [0.001, 40.6]]);
+  const GAP = 24, gun = new THREE.MeshPhysicalMaterial({ color: '#3a3d45', metalness: 1, roughness: 0.34, clearcoat: 0.35, clearcoatRoughness: 0.2 });
+  const hexBolt = new THREE.CylinderGeometry(5.5, 5.5, 3.2, 6), sealRing = new THREE.TorusGeometry(Rf * 0.465, 2.2, 12, 96);
+  for (const side of [1, -1]) {
+    const turn = new THREE.Group(); turn.position.x = side * W / 2; turn.rotation.z = -side * Math.PI / 2; drum.add(turn);
+    turn.add(new THREE.Mesh(flange, chrome));
+    for (let b = 0; b < 8; b++) { const ph = (b + 0.5) * Math.PI / 4, bm = new THREE.Mesh(hexBolt, steel); bm.position.set(Math.cos(ph) * Rf * 0.8, 12.1, Math.sin(ph) * Rf * 0.8); turn.add(bm); }
+    const still = new THREE.Group(); still.position.set(side * W / 2, ay, -r); still.rotation.z = -side * Math.PI / 2; rig.add(still);
+    still.add(new THREE.Mesh(bearing, chrome)); const sr = new THREE.Mesh(sealRing, seal); sr.rotation.x = Math.PI / 2; sr.position.y = 17.6; still.add(sr);
+    const bezel = new THREE.Mesh(new THREE.TorusGeometry(Rf * 0.68, 3.2, 16, 96), chrome); bezel.rotation.x = Math.PI / 2; bezel.position.y = GAP; still.add(bezel);   // the bearing's seat, flush in the upright
+    // the upright: flat inside, sloped outside (his sketch), machined gunmetal with rounded edges, a chrome cap on top; it runs off the bottom of the screen
+    const x0 = W / 2 + GAP, top = ay + Rf + 10, bot = -chh / 2 - 60, tw = 56, dx = (top - bot) * 0.2, Dp = Rf * 1.45;
+    const pts = [[x0, bot], [x0 + tw + dx, bot], [x0 + tw, top], [x0, top]].map(([px, py]) => new THREE.Vector2(side * px, py));
+    const pg = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth: Dp, bevelEnabled: true, bevelThickness: 3.5, bevelSize: 3.5, bevelSegments: 4, curveSegments: 4 });
+    pg.translate(0, 0, -Dp / 2); const post = new THREE.Mesh(pg, gun); post.position.z = -r; rig.add(post);
+    const capPlate = new THREE.Mesh(new THREE.BoxGeometry(tw + 10, 6, Dp + 10), chrome); capPlate.position.set(side * (x0 + tw / 2), top + 6.5, -r); rig.add(capPlate);
+  }
+  // the payline: a fine silver frame round the facet in front, fixed while the reel turns under it
+  const fw = W - 14, fh = h - 2 * ch - 2, t = 1.6, fm = new THREE.MeshBasicMaterial({ color: '#dfe3ea', transparent: true, opacity: 0.55, toneMapped: false, depthWrite: false });
+  [[0, fh / 2, fw, t], [0, -fh / 2, fw, t], [fw / 2, 0, t, fh], [-fw / 2, 0, t, fh]].forEach(([px, py, sw, sh]) => { const q = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), fm); q.position.set(px, py + ay, 1.4); rig.add(q); });
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(-1400, 1800, 2000); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.8); fill.position.set(1800, -400, 1400); scene.add(fill); scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+  // canvas: wide enough for the bearings, tall enough for the drum's full height; camera = the page's 2200 px perspective, so 1 unit = 1 CSS px at the front facet
+  console.log(`[gl] drum: ${N} facets, facet ${h}px × ${W}px, radius ${r.toFixed(1)}, flange ${Rf.toFixed(1)}, canvas height ${chh}`);
+}
+export function drumOpen(host, rows) {
+  if (!dR) { const cv = document.createElement('canvas'); cv.id = 'drumgl';
+    const rd = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); rd.setClearColor(0x000000, 0);
+    rd.toneMapping = THREE.ACESFilmicToneMapping; rd.toneMappingExposure = 0.95; rd.outputColorSpace = THREE.SRGBColorSpace; rd.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+    const scene = new THREE.Scene(), pm = new THREE.PMREMGenerator(rd); dR = { renderer: rd, canvas: cv, scene, camera: new THREE.PerspectiveCamera(10, 1, 100, 6000), env: pm.fromScene(new RoomEnvironment(), 0.04), W: 0 };
+    const dk = paintEnv({ sky: ['#0a0a0f', '#010102'], key: ['#ffffff', 1.0, 80, 360, 46], fill: ['#9fb4e8', 0.35, 120, 90, 96], rim: ['#ffffff', 0.7, 150, 256, 226], noise: 8 });
+    dR.darkEnv = pm.fromEquirectangular(dk).texture; dk.dispose(); pm.dispose(); }
+  const W = Math.min(640, innerWidth - 360); if (W !== dR.W) drumBuild(W);
+  // the page's 2200 px perspective, raised a little (his sketch looks down on it): you see the uprights' tops and the drum's curve
+  const cw = innerWidth; dR.renderer.setSize(cw, dR.chh); dR.camera.fov = 2 * Math.atan(dR.chh / 2 / 2200) * 180 / Math.PI; dR.camera.aspect = cw / dR.chh;
+  dR.camera.position.set(0, dR.ay + 330, 2200); dR.camera.lookAt(0, dR.ay - 30, -dR.r); dR.camera.updateProjectionMatrix();
+  dR.t0 = performance.now(); dR.rise = 0;
+  dR.scene.environment = dR.env.texture; dR.rows = rows; dR.tex = new Map(); dR.facets.forEach(f => { f.row = -2; f.m.visible = false; });
+  host.appendChild(dR.canvas); dR.last = null; drumRender(0);
+}
+export function drumRender(p) {
+  if (!dR || !dR.rows) return;
+  const k = Math.min(1, (performance.now() - dR.t0) / 520), e = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);   // rises out of the floor, a touch of overshoot, seats
+  if (dR.last === p && dR.rise === 1) return; dR.last = p; dR.rise = k; dR.rig.position.y = -(1 - e) * dR.chh;
+  const { N } = DRUM, al = dR.al; dR.drum.rotation.x = p * al;
+  dR.facets.forEach(f => { const i = f.k + N * Math.round((p - f.k) / N), row = dR.rows[i];
+    if (i !== f.row) { f.row = i; if (row) { let t = dR.tex.get(i); if (!t) { t = drumRowTex(row, dR.W - 30, DRUM.h - 2 * DRUM.ch - 6); dR.tex.set(i, t); }
+      f.m.material.map = t; f.m.material.needsUpdate = true; f.m.visible = true; } else f.m.visible = false; }
+    const face = Math.cos((f.k - p) * al), lit = Math.max(0, face); f.m.material.color.setScalar(0.18 + 0.82 * Math.pow(lit, 1.6)); f.m.material.opacity = Math.min(1, lit * 1.6); });
+  dR.renderer.render(dR.scene, dR.camera);
+}
+export function drumClose() { if (!dR) return; dR.canvas.remove(); if (dR.tex) dR.tex.forEach(t => t.dispose()); dR.tex = null; dR.rows = null; }
+
+try { init(); window.GL = { apply, MATERIALS, LIGHTS, QUALITY: Object.keys(QUALITY), drumOpen, drumRender, drumClose }; window.dispatchEvent(new Event('gl-ready')); }
 catch (e) { console.warn('[gl] WebGL renderer unavailable, keeping the CSS look:', e); }
