@@ -698,7 +698,12 @@ scene.addEventListener('mousedown', e => {
 addEventListener('mousemove', e => {
   if (!drag) return; const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
   if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return; drag.moved = true;
-  if (drag.twist) { const a = aroundMiddle(e); let d = a - drag.ang; if (d > 180) d -= 360; if (d < -180) d += 360; drag.ang = a; tw.pend += d * TWISTK; drag.lx = e.clientX; drag.ly = e.clientY; return; }
+  if (drag.twist) {                                                     // 09:28 "a tiny bit jumpy": the angle swept around the window's middle
+    // blows up near the middle (where a trackball's pointer usually sits). Use the move's sideways part over the radius, with the radius
+    // never counted as less than 200 px: far out it's exactly the swept angle, near the middle it stays calm.
+    const rx = e.clientX - innerWidth / 2, ry = e.clientY - innerHeight / 2, r = Math.hypot(rx, ry), R = Math.max(r, 200);
+    const d = (rx * dy - ry * dx) / (R * Math.max(r, 1)) * 180 / Math.PI;
+    tw.pend += d * TWISTK; drag.lx = e.clientX; drag.ly = e.clientY; return; }
   rotateBy(dx, dy);
   const now = performance.now(), dt = Math.max(1, now - drag.t); drag.vx = 0.6 * drag.vx + 0.4 * dx / dt; drag.vy = 0.6 * drag.vy + 0.4 * dy / dt;
   drag.t = now; drag.lx = e.clientX; drag.ly = e.clientY;
