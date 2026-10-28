@@ -37,7 +37,8 @@
   .hdr { font-size: 15px; font-weight: 700; letter-spacing: .02em; padding: 6px 10px; background: #17132b; color: #cfc4ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
   .host { flex: 1; padding: 4px; min-height: 0; }
   .host .xterm { height: 100%; }
-  #full { position: fixed; inset: 0; background: var(--face); display: none; flex-direction: column; z-index: 5; }
+  #full { position: fixed; inset: 0; background: var(--face); display: none; flex-direction: column; z-index: 5; transform-origin: 0 0; }
+  #fullsnap { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; width: 100%; height: calc(100% - 30px); object-fit: cover; object-position: top; display: none; z-index: 1; background: #fff; }
   #full.on { display: flex; }
   /* 23:03 Chris: the help line overlapped Claude Code's bottom bar in full screen. Now it's a ⚙ in the top-right corner that opens a panel. */
   #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
@@ -279,18 +280,39 @@ function goTo(i) {                                                     // the sh
   cmdTarget = true; present(Qt);
 }
 function select(i) { selFace = i; faces.forEach((f, j) => f.el.classList.toggle('sel', j === i)); faces[i].term.focus(); }
+// 2026-10-28 08:54 Chris: "when you jump into a face full screen it's pop and there… needs to animate it zooming in". Full screen now
+// GROWS out of the face's own spot on the solid (its screen rectangle → the window) and shrinks back into it on the way out. A browser
+// face carries its picture through the zoom (#fullsnap) and the live browser takes over when it lands. Low effects = no animation.
+let zooming = false; const ZOOM_MS = 380;
+const fullSnap = (() => { const im = document.createElement('img'); im.id = 'fullsnap'; full.appendChild(im); return im; })();
+function zoomBetween(rect, inward) {                                     // animate #full between the face's rectangle and the whole window
+  const W = innerWidth, H = innerHeight, small = `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / W}, ${rect.height / H})`;
+  return full.animate(inward ? [{ transform: small, opacity: 0.85 }, { transform: 'none', opacity: 1 }] : [{ transform: 'none', opacity: 1 }, { transform: small, opacity: 0.85 }],
+    { duration: prefs.lowfx ? 0 : ZOOM_MS, easing: 'cubic-bezier(.2,.8,.2,1)' });
+}
 function toggleFull() {
-  if (fullFace >= 0) {                                                // back onto the cube
-    const f = faces[fullFace]; if (isWeb(f.i)) { NATIVE && NATIVE.postMessage({ op: 'hide', face: f.i }); f.host.classList.remove('webhid'); }
-    f.inner.insertBefore(f.host, f.inner.querySelector('.websnap')); f.term.options.fontSize = 10; full.classList.remove('on');
-    document.getElementById('scene').style.visibility = ''; fullFace = -1; paint(); renderAttn(); refit(f); f.term.focus(); return;
+  if (zooming) return;
+  if (fullFace >= 0) {                                                // back onto the cube: shrink into the face's spot, then put it back
+    const f = faces[fullFace], web = isWeb(f.i); zooming = true;
+    if (web) { NATIVE && NATIVE.postMessage({ op: 'hide', face: f.i }); fullSnap.src = f.inner.querySelector('.websnap').src || ''; fullSnap.style.display = 'block'; }
+    document.getElementById('scene').style.visibility = '';
+    zoomBetween(f.inner.getBoundingClientRect(), false).onfinish = () => {
+      if (web) f.host.classList.remove('webhid'); fullSnap.style.display = 'none';
+      f.inner.insertBefore(f.host, f.inner.querySelector('.websnap')); f.term.options.fontSize = 10; full.classList.remove('on');
+      fullFace = -1; zooming = false; paint(); renderAttn(); refit(f); f.term.focus();
+    };
+    return;
   }
   // 2026-10-28 Chris: long press on a new face (Claude's trust prompt) opened some OTHER session: this used the last SELECTED face,
   // which stays put while you roll. Full screen is always the face in front of you, and typing goes there.
-  const i = frontFace(), f = faces[i]; select(i); fullFace = i;
+  const i = frontFace(), f = faces[i], web = isWeb(i), from = f.inner.getBoundingClientRect(); select(i); fullFace = i; zooming = true;
+  if (web) { webBar(f); f.host.classList.add('webhid'); fullSnap.src = f.inner.querySelector('.websnap').src || ''; fullSnap.style.display = 'block'; }
   full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); paint();
-  if (isWeb(i)) { webBar(f); f.host.classList.add('webhid'); requestAnimationFrame(() => showWeb(i)); } document.getElementById('scene').style.visibility = 'hidden';
   label(f); renderAttn(); refit(f); f.term.focus();
+  zoomBetween(from, true).onfinish = () => {
+    zooming = false; document.getElementById('scene').style.visibility = 'hidden';
+    if (web) { showWeb(i); setTimeout(() => { if (fullFace === i) fullSnap.style.display = 'none'; }, 120); }   // the live browser covers it first
+  };
 }
 function pressDown() { const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
 function pullUp() { if (fullFace >= 0) toggleFull(); }
