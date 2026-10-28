@@ -66,6 +66,23 @@ for (const shape of ['cube', 'cuboct', 'rhombi']) {
   let built = true; try { run(`useShape('${shape}')`); } catch (e) { built = false; console.log('  FAIL build:', e.message); }
   check(built, `${shape} builds`); if (!built) continue;
   const n = run('SH.slots.length');
+  // 1b. the same invariants checked HERE, independently, from what the page actually draws (each screen's matrix, each triangle's
+  //     centre/normal/up), so deleting buildShape's own checks can't quietly switch them off. (Ly-Ura, 2026-10-28: "assert the
+  //     corner-coincidence invariant instead of describing it, because that's the one that rots quietly.")
+  const geo = run(`(() => { const o = { dist: 0, edge: 0, missed: 0, corners: 0 }, R = SH.a / Math.sqrt(3), verts = [];
+    SH.tris.forEach(t => { const w = V.cross(t.n, t.u), vs = [0, 120, 240].map(d => { const r = d * Math.PI / 180;
+      return V.add(t.c, V.add(V.mul(t.u, R * Math.cos(r)), V.mul(w, R * Math.sin(r)))); });
+      [[0, 1], [1, 2], [2, 0]].forEach(([p, q]) => { o.edge = Math.max(o.edge, Math.abs(Math.hypot(...V.sub(vs[p], vs[q])) - SH.a)); }); verts.push(...vs); });
+    SH.slots.forEach(sl => { const c = sl.m.transformPoint(new DOMPoint(0, 0, 0)); o.dist = Math.max(o.dist, Math.abs(Math.hypot(c.x, c.y, c.z) - SH.r));
+      if (verts.length) for (const [p, q] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { o.corners++;
+        const k = sl.m.transformPoint(new DOMPoint(p * S / 2, q * S / 2, 0)), pt = [k.x, k.y, k.z];
+        if (!verts.some(v => Math.hypot(...V.sub(v, pt)) < 1e-6 * SH.a)) o.missed++; } });
+    return o; })()`);
+  check(geo.dist < 1e-6 * run('SH.a'), `${shape}: every screen sits at the same distance (off by ${geo.dist})`);
+  if (shape !== 'cube') {
+    check(geo.edge < 1e-6 * run('SH.a'), `${shape}: every triangle edge = the screen edge (off by ${geo.edge})`);
+    check(geo.corners > 0 && geo.missed === 0, `${shape}: every screen corner sits on a triangle corner (${geo.missed} of ${geo.corners} missed)`);
+  }
   check(n === { cube: 6, cuboct: 6, rhombi: 18 }[shape], `${shape} has ${n} screens`);
 
   // 2. 2,000 random rolls: every step lands on a NEW screen, facing you, square to the screen, unit quaternion
