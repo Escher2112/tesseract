@@ -6,7 +6,7 @@
      Keys (Ctrl+Option): arrows = turn · Return = full screen · 1-6 = jump to a face. Clicking a face selects it. -->
 <link rel="stylesheet" href="/vendor/xterm.css">
 <style>
-  :root { --S: 560px; --bg: #07060d; --face: #0d0b18; --edge: #4a3c8f; --sel: #c9b8ff; }
+  :root { --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
   html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at center, #15112a 0%, var(--bg) 70%); overflow: hidden;
                font: 12px Menlo, Monaco, monospace; color: #b9adf0; }
   #scene { position: fixed; inset: 0; perspective: 2200px; display: flex; align-items: center; justify-content: center; }
@@ -47,12 +47,19 @@ const PLACE = [`rotateY(0deg)`, `rotateY(90deg)`, `rotateY(180deg)`, `rotateY(-9
 // 22:56 Chris: after rolling, "top" isn't top any more, so faces are just numbered and NAMED BY THEIR SESSION: the title the program
 // in the terminal sets (Claude Code sets one per session, the same name his terminal tabs show).
 const NAMES = ['1', '2', '3', '4', '5', '6'];
+// 23:36 Chris: "the colors are wrong… do the same terminal colors in the app that we're using here." His Terminal.app profile is "Basic"
+// (read from com.apple.Terminal at 23:38): background #000000, text #009eff, cursor #0054a2, selection #4a598b; the 16 ANSI colours are
+// Terminal's standard Basic set (not overridden in his profile; values from Terminal's defaults, from memory).
+const THEME = { background: '#000000', foreground: '#009eff', cursor: '#0054a2', cursorAccent: '#000000', selectionBackground: '#4a598b',
+  black: '#000000', red: '#990000', green: '#00a600', yellow: '#999900', blue: '#0000b2', magenta: '#b200b2', cyan: '#00a6b2', white: '#bfbfbf',
+  brightBlack: '#666666', brightRed: '#e50000', brightGreen: '#00d900', brightYellow: '#e5e500', brightBlue: '#0000ff',
+  brightMagenta: '#e500e5', brightCyan: '#00e5e5', brightWhite: '#e5e5e5' };
 const faces = NAMES.map((name, i) => {
   const el = document.createElement('div'); el.className = 'face'; el.style.transform = PLACE[i];
   const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.textContent = name;
   const host = document.createElement('div'); host.className = 'host'; el.append(hdr, host); cube.appendChild(el);
   const term = new TerminalCls({ fontFamily: 'Menlo, Monaco, monospace', fontSize: 10, cursorBlink: true, scrollback: 5000,
-    theme: { background: '#0d0b18', foreground: '#e6e1ff', cursor: '#c9b8ff', selectionBackground: '#4a3c8f' } });
+    theme: THEME });
   const fit = new FitCls(); term.loadAddon(fit); term.open(host);
   const f = { i, name, el, hdr, host, term, fit, title: '', out: '', busy: false };
   term.onData(d => input(f, d));

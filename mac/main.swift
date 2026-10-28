@@ -87,6 +87,7 @@ edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), k
 editItem.submenu = edit
 let viewItem = NSMenuItem(); menu.addItem(viewItem)
 let view = NSMenu(title: "View")
+view.addItem(withTitle: "Reload", action: #selector(WKWebView.reload(_:)), keyEquivalent: "r")   // the shells keep running
 view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
 viewItem.submenu = view
 app.mainMenu = menu
