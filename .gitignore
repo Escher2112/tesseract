@@ -4,3 +4,4 @@ mac/build/
 __pycache__/
 .DS_Store
 WHAT-THIS-IS.md
+RESTART-*.md
