@@ -46,6 +46,34 @@ The hook only acts inside a 3D Terminal face; everywhere else it does nothing. F
 and reopens it with `codex resume <id>`. If you start Codex through your own command per CODEX_HOME, map them in
 `~/.config/3d-terminal/config.json`, e.g. `{"codex_launchers": {"~/.codex-work": "workcodex"}}`.
 
+## Colours and groups
+Give a face a group colour and it gets an etched, glowing double line around its edge (the terminal itself stays black and readable).
+Four colour slots, set in the ⚙ panel (the default palette stays distinguishable for colour-blind eyes):
+- **tap** a colour button = colour the face you're looking at (tap again = clear) · **double tap** = jump to the next face of that colour ·
+  **hold** (3D mouse) = dim every face that isn't that colour until you let go.
+- Buttons: 3D mouse buttons 4, 5, 7, 8 by default (each changeable in ⚙ by pressing the button you want) · keyboard Ctrl+Option+7 8 9 0 ·
+  or the "colour this face" buttons in ⚙.
+- **Group faces by colour** (⚙): same-colour faces move next to each other. It only moves where faces sit: every session, title and
+  colour stays with its own terminal, nothing restarts. Switch it off and every face goes back to its own place.
+- Glow strength and a low-effects mode are in ⚙. Settings are kept per computer in `~/.config/3d-terminal/config.json`.
+
+## Attention: which session needs you
+When a Claude Code session on another face is waiting for you (a permission prompt, a question, or it finished its turn), that face
+pulses in its own colour and a small list top-right says so: `Face 4 · <session> · needs your approval`. Nothing takes your keyboard
+away. Click an entry, press **jump** (Ctrl+Option+J, or 3D mouse button 9) to go to the oldest waiting face, and **back**
+(Ctrl+Option+B, or button 10) to return exactly where you were. Looking at a face does not clear it: it clears when the session
+actually moves again (you answered, a tool ran, you sent a prompt). × dismisses one by hand. The longer a face waits, the closer its pulse
+fades toward white (⚙: minutes, 0 = never). ⚙ also has "quiet" (no list, faces still pulse) and whether a finished turn counts.
+The app never answers, approves or types anything for you.
+
+One-time setup (Claude Code): copy `hooks/cube-attention-hook.py` to `~/.config/3d-terminal/` and add it in `~/.claude/settings.json`
+under each of `Notification`, `Stop`, `UserPromptSubmit`, `PostToolUse` and `SessionEnd`:
+
+    {"matcher": "", "hooks": [{"type": "command", "command": "/usr/bin/python3 -I ~/.config/3d-terminal/cube-attention-hook.py", "timeout": 5, "async": true}]}
+
+Like the reopen hook, it does nothing outside a 3D Terminal face. It takes effect for sessions started after you quit and reopen the app.
+Codex sessions don't report attention yet.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).

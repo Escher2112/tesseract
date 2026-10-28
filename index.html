@@ -6,7 +6,7 @@
      Keys (Ctrl+Option): arrows = turn · Return = full screen · 1-6 = jump to a face. Clicking a face selects it. -->
 <link rel="stylesheet" href="/vendor/xterm.css">
 <style>
-  :root { --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
+  :root { --glow: 1; --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
   html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at center, #15112a 0%, var(--bg) 70%); overflow: hidden;
                font: 12px Menlo, Monaco, monospace; color: #b9adf0; }
   #scene { position: fixed; inset: 0; perspective: 2200px; display: flex; align-items: center; justify-content: center; }
@@ -23,17 +23,36 @@
   /* 23:03 Chris: the help line overlapped Claude Code's bottom bar in full screen. Now it's a ⚙ in the top-right corner that opens a panel. */
   #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
   #gear:hover { opacity: 1; }
-  #help { position: fixed; top: 32px; right: 10px; z-index: 7; display: none; max-width: 420px; padding: 12px 14px; line-height: 1.6;
+  #help { position: fixed; top: 32px; right: 10px; z-index: 7; display: none; max-width: 420px; max-height: calc(100vh - 44px); overflow-y: auto; padding: 12px 14px; line-height: 1.6;
           background: rgba(20, 16, 40, .96); border: 1px solid var(--edge); border-radius: 8px; color: #d8d0ff; }
   #help.on { display: block; }
   #helptext { white-space: pre-line; }  #setting { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); }
+  /* 2026-10-28 Priority 1 (colors) + 2 (attention), Chris + Riven's spec. A face's group colour is an etched, glowing double line
+     around its edge (never a fill: the terminal stays black and readable). A face waiting on a person pulses in ITS OWN colour
+     (--pc, which can fade toward white the longer it waits); uncoloured faces pulse lavender. */
+  .face { --gc: var(--edge); --pc: #c9b8ff; }
+  .face.colored { border: 3px double var(--gc); box-shadow: 0 0 calc(16px * var(--glow)) var(--gc), inset 0 0 calc(6px * var(--glow)) var(--gc); }
+  .face.colored.sel { box-shadow: 0 0 calc(34px * var(--glow)) var(--gc), inset 0 0 calc(10px * var(--glow)) var(--gc); }
+  .face.attn { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { border-color: var(--pc); box-shadow: 0 0 6px var(--pc); }
+                     50% { border-color: var(--pc); box-shadow: 0 0 calc(40px * var(--glow) + 10px) var(--pc), inset 0 0 14px var(--pc); } }
+  .face.dim { opacity: .15; }
+  body.lowfx .face.colored, body.lowfx .face.colored.sel { box-shadow: none; }
+  body.lowfx .face.attn { animation: none; border: 4px solid var(--pc); }
+  #full.colored { border: 3px double var(--gc); box-sizing: border-box; }
+  #attnq { position: fixed; top: 6px; right: 40px; z-index: 8; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
+  .aq .x { margin-left: 10px; opacity: .55; }  .aq .x:hover { opacity: 1; }
+  #prefs { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); line-height: 2; }
+  #prefs input[type=color] { width: 26px; height: 18px; padding: 0; border: 0; background: none; vertical-align: middle; }
+  #prefs input[type=number] { width: 42px; } #prefs a { color: #c9b8ff; } #prefs button { font: inherit; margin-right: 4px; }
   #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 7; padding: 4px 12px; border-radius: 6px;
            background: rgba(20, 16, 40, .9); color: #d8d0ff; display: none; }
 </style></head>
 <body>
 <div id="scene"><div id="cube"></div></div>
 <div id="full"><div class="hdr" id="fullhdr"></div></div>
-<div id="gear" title="How to drive it">⚙</div><div id="help"><div id="helptext"></div><div id="setting">hand-back button: <b id="tog">6</b> &nbsp;<a href="#" id="learn" style="color:#c9b8ff">change</a></div></div><div id="toast"></div>
+<div id="gear" title="How to drive it">⚙</div><div id="help"><div id="helptext"></div><div id="setting">hand-back button: <b id="tog">6</b> &nbsp;<a href="#" id="learn" style="color:#c9b8ff">change</a></div><div id="prefs"></div></div><div id="toast"></div><div id="attnq"></div>
 <script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script>
 <script>
 'use strict';
@@ -44,6 +63,9 @@ const cube = document.getElementById('cube'), full = document.getElementById('fu
 const S = Math.round(Math.min(innerWidth, innerHeight) * 0.66); document.documentElement.style.setProperty('--S', S + 'px');
 // face places: 0-3 around the sides, 4 top, 5 bottom
 const PLACE = [`rotateY(0deg)`, `rotateY(90deg)`, `rotateY(180deg)`, `rotateY(-90deg)`, `rotateX(90deg)`, `rotateX(-90deg)`].map(r => `${r} translateZ(${S / 2}px)`);
+// 2026-10-28 "group faces by colour": face i (= shell i, its session) sits in place slot[i]. Regrouping changes only where a face SITS;
+// the shell, its session, title and colour all stay with the face. Off = every face in its own place.
+let slot = [0, 1, 2, 3, 4, 5]; const P = i => PLACE[slot[i]];
 // 22:56 Chris: after rolling, "top" isn't top any more, so faces are just numbered and NAMED BY THEIR SESSION: the title the program
 // in the terminal sets (Claude Code sets one per session, the same name his terminal tabs show).
 const NAMES = ['1', '2', '3', '4', '5', '6'];
@@ -55,7 +77,7 @@ const THEME = { background: '#000000', foreground: '#009eff', cursor: '#0054a2',
   brightBlack: '#666666', brightRed: '#e50000', brightGreen: '#00d900', brightYellow: '#e5e500', brightBlue: '#0000ff',
   brightMagenta: '#e500e5', brightCyan: '#00e5e5', brightWhite: '#e5e5e5' };
 const faces = NAMES.map((name, i) => {
-  const el = document.createElement('div'); el.className = 'face'; el.style.transform = PLACE[i];
+  const el = document.createElement('div'); el.className = 'face'; el.style.transform = P(i);
   const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.textContent = name;
   const host = document.createElement('div'); host.className = 'host'; el.append(hdr, host); cube.appendChild(el);
   const term = new TerminalCls({ fontFamily: 'Menlo, Monaco, monospace', fontSize: 10, cursorBlink: true, scrollback: 5000,
@@ -67,7 +89,7 @@ const faces = NAMES.map((name, i) => {
   el.addEventListener('mousedown', () => { select(i); goTo(i); });
   return f;
 });
-function label(f) { const t = f.name + '  ·  ' + (f.title || 'no session yet: type claude'); f.hdr.textContent = t; if (fullFace === f.i) fullhdr.textContent = t + '   (button 2 / Ctrl+Option+Return = back to the cube)'; }
+function label(f) { const t = f.name + '  ·  ' + (f.title || 'no session yet: type claude'); f.hdr.textContent = t; if (fullFace === f.i) fullhdr.textContent = t + '   (button 2 / Ctrl+Option+Return = back to the cube)'; if (typeof renderAttn === 'function') renderAttn(); }
 
 // ---------- talking to server.py: one stream in; keystrokes out in order, one request at a time per face
 const post = (path, body) => fetch(`${path}${path.includes('?') ? '&' : '?'}k=${encodeURIComponent(KEY)}`, { method: 'POST', body });
@@ -80,10 +102,12 @@ function refit(f) { try { f.fit.fit(); } catch (e) {} post(`/resize?f=${f.i}&c=$
 const es = new EventSource(`/stream?k=${encodeURIComponent(KEY)}`);
 es.onmessage = e => {
   const m = JSON.parse(e.data);
-  if (m.f !== undefined) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) f.term.write(m.o); if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
+  if (m.f !== undefined && !m.k) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) f.term.write(m.o); if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
   else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
   else if (m.k === 'sbb') sbButtons(m.m);
-  else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); }
+  else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
+  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; savePrefs(); renderPrefs(); toast(`${m.target} is now button ${m.b}`); }
+  else if (m.k === 'attn') { const a = att[m.f]; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
 };
@@ -112,7 +136,7 @@ function qMatrix(q) {                                                  // p' = R
   const R = [1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y), 2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x), 2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)];
   return new DOMMatrix([R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1]);
 }
-function faceAt(q, i) { return qMatrix(q).multiply(new DOMMatrix(PLACE[i])); }   // bare face, ignoring its picture turn
+function faceAt(q, i) { return qMatrix(q).multiply(new DOMMatrix(P(i))); }   // bare face, ignoring its picture turn
 function frontOf(q) { let best = 0, bz = -1e9; for (let i = 0; i < 6; i++) { const z = faceAt(q, i).m43; if (z > bz) { bz = z; best = i; } } return best; }
 function frontFace() { return frontOf(Qt); }
 function upright(q) {                                                  // turn about the screen's depth axis until the front face reads upright
@@ -135,7 +159,7 @@ const rollQ = (q, dy, dp) => qNorm(qMul(dy ? qAxis(0, 1, 0, 90 * dy) : qAxis(1, 
 function present(q) {
   const f = frontOf(q), m = faceAt(q, f), o = m.transformPoint(new DOMPoint(0, 0, 0)), u = m.transformPoint(new DOMPoint(0, -1, 0));
   const ang = Math.round(Math.atan2(u.x - o.x, -(u.y - o.y)) * 180 / Math.PI / 90) * 90;   // how far the bare face leans, clockwise
-  faces[f].rot = -ang; faces[f].el.style.transform = `${PLACE[f]} rotateZ(${-ang}deg)`;
+  faces[f].rot = -ang; faces[f].el.style.transform = `${P(f)} rotateZ(${-ang}deg)`;
 }
 function turn(dy, dp) { if (fullFace >= 0) return; Qt = rollQ(Qt, dy, dp); present(Qt); }
 function settle() {}
@@ -152,21 +176,26 @@ function select(i) { selFace = i; faces.forEach((f, j) => f.el.classList.toggle(
 function toggleFull() {
   if (fullFace >= 0) {                                                // back onto the cube
     const f = faces[fullFace]; f.el.appendChild(f.host); f.term.options.fontSize = 10; full.classList.remove('on');
-    document.getElementById('scene').style.visibility = ''; fullFace = -1; refit(f); f.term.focus(); return;
+    document.getElementById('scene').style.visibility = ''; fullFace = -1; paint(); renderAttn(); refit(f); f.term.focus(); return;
   }
   // 2026-10-28 Chris: long press on a new face (Claude's trust prompt) opened some OTHER session: this used the last SELECTED face,
   // which stays put while you roll. Full screen is always the face in front of you, and typing goes there.
   const i = frontFace(), f = faces[i]; select(i); fullFace = i;
-  full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); document.getElementById('scene').style.visibility = 'hidden';
-  label(f); refit(f); f.term.focus();
+  full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); paint(); document.getElementById('scene').style.visibility = 'hidden';
+  label(f); renderAttn(); refit(f); f.term.focus();
 }
 function pressDown() { const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
 function pullUp() { if (fullFace >= 0) toggleFull(); }
 function sbButtons(mask) {
-  const pressed = mask & ~sbMask; sbMask = mask; if (!pressed) return;
+  const pressed = mask & ~sbMask, released = sbMask & ~mask; sbMask = mask;
+  const B = prefs.buttons, bit = n => (n ? 1 << (n - 1) : 0);
+  for (let g = 1; g <= 4; g++) { const b = bit(B['color' + g]); if (pressed & b) colorDown(g); if (released & b) colorUp(g); }
+  if (pressed & bit(B.jump)) jumpNext();
+  if (pressed & bit(B.back)) goBack();
+  if (!pressed) return;
   if (pressed & 1) { const i = frontFace(); select(i); }
   if (pressed & 2) toggleFull();
-  if (pressed & 4) { if (fullFace >= 0) toggleFull(); Qt = [1, 0, 0, 0]; faces.forEach((f, i) => { f.rot = 0; f.el.style.transform = PLACE[i]; }); select(0); }
+  if (pressed & 4) { if (fullFace >= 0) toggleFull(); Qt = [1, 0, 0, 0]; faces.forEach((f, i) => { f.rot = 0; f.el.style.transform = P(i); }); select(0); }
 }
 // the PowerMate (Chris 22:28): turning rolls the cube side to side, or top to bottom; a tap swaps which; a double tap picks the face.
 // A long press (over 0.6 s, no turning) = full screen on/off. About 8 clicks = one face.
@@ -190,6 +219,8 @@ addEventListener('keydown', e => {
   const k = e.key; let hit = true;
   if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
+  else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack();
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
 }, true);
@@ -223,6 +254,110 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 setTimeout(() => faces.forEach(refit), 300);
+// ---------- Priority 1: colours and groups (Chris + Riven's spec, 2026-10-28). Colours belong to the FACE (= its shell and session),
+// saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
+// pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
+const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
+  buttons: { color1: 4, color2: 5, color3: 7, color4: 8, jump: 9, back: 10 },
+  glow: 1, lowfx: false, cluster: false, attnFinished: true, quiet: false, ageMin: 15 };
+let prefs = JSON.parse(JSON.stringify(DEF));
+function loadPrefs(p) { prefs = Object.assign(JSON.parse(JSON.stringify(DEF)), p, { buttons: Object.assign({}, DEF.buttons, p.buttons || {}) }); applyPrefs(); }
+function savePrefs() { post('/config?prefs=1', JSON.stringify(prefs)); }
+function applyPrefs() { document.body.classList.toggle('lowfx', !!prefs.lowfx); document.documentElement.style.setProperty('--glow', prefs.glow);
+  paint(); layout(); renderPrefs(); renderAttn(); }
+const cur = () => (fullFace >= 0 ? fullFace : frontFace());              // the face you are looking at (the same rule full screen uses)
+function paint() {
+  faces.forEach(f => { const g = prefs.colors[f.i]; f.el.classList.toggle('colored', !!g); if (g) f.el.style.setProperty('--gc', prefs.palette[g - 1]); });
+  const g = fullFace >= 0 && prefs.colors[fullFace]; full.classList.toggle('colored', !!g); if (g) full.style.setProperty('--gc', prefs.palette[g - 1]);
+}
+function layout() {                                                      // group by colour: same colours sit next to each other
+  const order = prefs.cluster ? [0, 1, 2, 3, 4, 5].sort((a, b) => ((prefs.colors[a] || 9) - (prefs.colors[b] || 9)) || a - b) : [0, 1, 2, 3, 4, 5];
+  const ns = []; order.forEach((fi, k) => { ns[fi] = k; });               // places 0-1-2-3 run round the sides, so a group lands side by side
+  if (ns.join() === slot.join()) return;
+  const keep = cur(); slot = ns; faces.forEach(f => { f.rot = 0; f.el.style.transform = P(f.i); }); goTo(keep); select(keep);
+}
+function assignColor(g) {
+  const i = cur(); if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
+  savePrefs(); paint(); layout(); renderAttn(); toast(prefs.colors[i] ? `face ${i + 1} → colour ${g}` : `face ${i + 1}: colour cleared`);
+}
+function cycleColor(g) {                                                 // next face with colour g after the one you're on
+  const list = faces.map(f => f.i).filter(i => prefs.colors[i] === g); if (!list.length) { toast(`no face has colour ${g} yet`); return; }
+  const i = list.find(x => x > cur()) ?? list[0]; openFace(i, fullFace >= 0);
+}
+function isolate(g) { faces.forEach(f => f.el.classList.toggle('dim', !!g && prefs.colors[f.i] !== g)); }
+const taps = {};
+function colorTap(g) {                                                   // one tap = colour this face · two quick taps = next face of that colour
+  const t = taps[g] || (taps[g] = { n: 0 }); t.n++; clearTimeout(t.timer);
+  t.timer = setTimeout(() => { const n = t.n; t.n = 0; n >= 2 ? cycleColor(g) : assignColor(g); }, 320);
+}
+function colorDown(g) { const t = taps[g] || (taps[g] = { n: 0 }); t.held = false; t.hold = setTimeout(() => { t.held = true; isolate(g); }, 500); }
+function colorUp(g) { const t = taps[g]; if (!t) return; clearTimeout(t.hold); if (t.held) { t.held = false; isolate(0); } else colorTap(g); }
+
+// ---------- Priority 2: Attention Routing. The server tells us (from Claude Code's own hooks) which faces wait on a person. A waiting
+// face pulses in its own colour; a small list top-right names the others while you work. Nothing here ever types, answers, approves or
+// takes your keyboard away: a notice only moves you when YOU click it or press jump. Looking at a face never clears it; × dismisses.
+const att = faces.map(() => ({ s: 'working', r: '', since: 0, dismissed: false }));
+const waiting = i => att[i].s === 'needs' && !att[i].dismissed && (prefs.attnFinished || !att[i].r.startsWith('finished'));
+const attnq = document.getElementById('attnq');
+function renderAttn() {
+  faces.forEach(f => f.el.classList.toggle('attn', waiting(f.i)));
+  const here = fullFace >= 0 ? fullFace : selFace;
+  const list = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
+  attnq.replaceChildren(...(prefs.quiet ? [] : list.map(i => {
+    const d = document.createElement('div'); d.className = 'aq'; d.dataset.f = i;
+    d.textContent = `Face ${i + 1} · ${faces[i].title || 'shell'} · ${att[i].r}`;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×'; x.title = 'dismiss (it comes back if it asks again)';
+    x.onclick = e => { e.stopPropagation(); att[i].dismissed = true; renderAttn(); };
+    d.appendChild(x); d.onclick = () => jumpTo(i); return d;
+  })));
+  tint();
+}
+function mix(hex, t) { const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + (255 - v) * t));
+  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join(''); }
+function tint() {                                                        // the longer a face waits, the closer its pulse gets to white
+  faces.forEach(f => { if (!waiting(f.i)) return; const g = prefs.colors[f.i], base = g ? prefs.palette[g - 1] : '#c9b8ff';
+    const t = prefs.ageMin > 0 ? Math.min(1, (Date.now() - att[f.i].since) / (prefs.ageMin * 60000)) : 0, c = mix(base, t * 0.85);
+    f.el.style.setProperty('--pc', c); const q = attnq.querySelector(`[data-f="${f.i}"]`); if (q) q.style.setProperty('--pc', c); });
+}
+setInterval(tint, 2000);
+const backStack = [];
+function openFace(i, wantFull) { if (fullFace >= 0 && fullFace !== i) toggleFull(); goTo(i); select(i); if (wantFull && fullFace < 0) toggleFull(); renderAttn(); }
+function jumpTo(i) {                                                     // go to a waiting face, remembering exactly where you were
+  const here = fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace()); if (here === i) return;
+  backStack.push({ i: here, full: fullFace >= 0 }); if (backStack.length > 12) backStack.shift(); openFace(i, fullFace >= 0);
+}
+function jumpNext() {                                                    // oldest waiting first; nothing waiting = go back
+  const here = fullFace >= 0 ? fullFace : selFace;
+  const w = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
+  if (w.length) jumpTo(w[0]); else goBack();
+}
+function goBack() { const c = backStack.pop(); if (!c) { toast('nothing to go back to'); return; } openFace(c.i, c.full); }
+
+// ---------- the ⚙ panel's settings for both
+function renderPrefs() {
+  const el = document.getElementById('prefs'), B = prefs.buttons, keys = ['7', '8', '9', '0'];
+  const learn = t => `<a href="#" data-learn="${t}">change</a>`;
+  el.innerHTML = `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
+    [1, 2, 3, 4].map(g => `<input type="color" data-pal="${g}" value="${prefs.palette[g - 1]}"> ${g}: ball button <b>${B['color' + g]}</b> ${learn('color' + g)} · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
+    `<br>colour this face: ${[1, 2, 3, 4].map(g => `<button data-assign="${g}">${g}</button>`).join('')}` +
+    `<br>glow <input type="range" id="p-glow" min="0" max="2" step="0.1" value="${prefs.glow}"> <label><input type="checkbox" id="p-lowfx" ${prefs.lowfx ? 'checked' : ''}> low effects</label>` +
+    `<br><label><input type="checkbox" id="p-cluster" ${prefs.cluster ? 'checked' : ''}> group faces by colour</label> (moves faces, never sessions)` +
+    `<br><b>ATTENTION</b> (a session waiting on you pulses in its colour)` +
+    `<br><label><input type="checkbox" id="p-fin" ${prefs.attnFinished ? 'checked' : ''}> also when a session finishes its turn</label>` +
+    `<br><label><input type="checkbox" id="p-quiet" ${prefs.quiet ? 'checked' : ''}> quiet: no list top-right (faces still pulse)</label>` +
+    `<br>fade the pulse toward white over <input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin}"> min (0 = never)` +
+    `<br>jump to the oldest waiting: ball button <b>${B.jump}</b> ${learn('jump')} · Ctrl+Option+J` +
+    `<br>back to where you were: ball button <b>${B.back}</b> ${learn('back')} · Ctrl+Option+B`;
+  el.querySelectorAll('[data-pal]').forEach(i => { i.oninput = () => { prefs.palette[+i.dataset.pal - 1] = i.value; paint(); tint(); }; i.onchange = savePrefs; });
+  el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
+  el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
+  const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
+  document.getElementById('p-glow').oninput = e => { prefs.glow = +e.target.value; document.documentElement.style.setProperty('--glow', prefs.glow); };
+  document.getElementById('p-glow').onchange = savePrefs;
+  on('p-lowfx', t => { prefs.lowfx = t.checked; }); on('p-cluster', t => { prefs.cluster = t.checked; });
+  on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; });
+  on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
+}
 const HELP = `SPACEBALL
 twist = roll side to side · tilt = roll over the top
 push down = select the face · push again = full screen
@@ -235,11 +370,15 @@ double tap = select · long press = full screen on/off
 
 KEYBOARD (Ctrl+Option)
 arrows = roll · Return = full screen · 1-6 = jump to a face
-click a face to select it`;
+7 8 9 0 = colours 1-4 · J = jump to a waiting face · B = back
+click a face to select it
+
+COLOURS + ATTENTION: settings below`;
 document.getElementById('helptext').textContent = HELP;
 document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
 document.getElementById('gear').onclick = () => help.classList.toggle('on');
 faces.forEach(label);                                                  // after fullFace exists (label reads it)
+applyPrefs();                                                          // defaults until the server sends the saved prefs
 // 22:58 Chris: the top of Claude's little mascot was clipped on the cube. The terminals kept an old row count after the title bar grew
 // (and another page on the same server can resize the shells), so each terminal now refits whenever its box changes size, and all of
 // them refit when this window comes back to the front.

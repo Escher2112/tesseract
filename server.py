@@ -7,6 +7,8 @@ Run:  python3 -I server.py [--port N]      → open the URL it prints (pip insta
                                 {"k": "sb", "a": "t"|"r", "v": [x,y,z]} · {"k": "sbb", "m": mask} · {"k": "knob", "t": clicks, "b": 0/1}
   POST /in?k=KEY&f=N          body = keystrokes for face N (a dead shell is restarted first)
   POST /resize?k=KEY&f=N&c=COLS&r=ROWS
+  POST /attn?k=KEY&f=N        body {"s": "needs"|"working", "r": reason} from hooks/cube-attention-hook.py (Claude Code hooks)
+  POST /config?k=KEY&prefs=1  body = page preferences to save (colors, palette, bindings, attention settings)
 Only 127.0.0.1, only with the key, only with the right Host header. Stopping this server ends every shell (and any claude in them)."""
 import codecs, fcntl, json, os, pty, queue, secrets, shlex, signal, struct, subprocess, sys, termios, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -28,6 +30,8 @@ def clean_env(face=None):
                                                         or k in ("CLAUDE_PID", "CLAUDE_EFFORT"))}
     env.update(TERM="xterm-256color", COLORTERM="truecolor", SESSION_CUBE="1")
     if face is not None: env["SESSION_CUBE_FACE"] = str(face + 1)   # 1-6: lets the Claude hook record which conversation is on which face
+    # 2026-10-28 Attention Routing: the attention hook reports "needs you" / "working" back to THIS server (port + this run's key)
+    env.update(SESSION_CUBE_URL=f"http://127.0.0.1:{PORT}", SESSION_CUBE_KEY=KEY)
     return env
 
 class Shell:
@@ -80,7 +84,7 @@ class Shell:
         except OSError: pass
         try: os.waitpid(self.pid, 0)
         except ChildProcessError: pass
-        self.fd = None; send({"f": self.face, "exit": True})
+        self.fd = None; send({"f": self.face, "exit": True}); set_attn(self.face, "working", "")
     def write(self, data):
         for _ in range(2):
             try:
@@ -96,6 +100,20 @@ class Shell:
     def replay(self):
         with self.lock: return self.buf.decode("utf-8", errors="replace")
 FACES_DIR = os.path.expanduser("~/.config/3d-terminal/faces")
+# ---------- Attention Routing (Chris + Riven's spec, 2026-10-28): which faces are waiting on a person. Set ONLY by the hook's real
+# events (a permission prompt, a question, a finished turn) and cleared ONLY by real progress (you typed a prompt, a tool ran, the
+# session ended, the shell died). Looking at a face never clears it. "since" stays the time it FIRST started waiting.
+attn, attn_lock = [{"s": "working", "r": "", "since": 0} for _ in range(6)], threading.Lock()
+def set_attn(face, state, reason):
+    with attn_lock:
+        a = attn[face]
+        if state == "needs":
+            if a["s"] != "needs": a["since"] = int(time.time() * 1000)
+            a["s"], a["r"] = "needs", reason[:60]
+        elif a["s"] == "working": return
+        else: a.update(s="working", r="", since=0)
+        msg = dict(k="attn", f=face, **a)
+    send(msg)
 shells = [Shell(i) for i in range(FACES)]
 def program_under(pid, names):                                       # first process below this shell whose name is in names → (pid, name)
     try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
@@ -158,6 +176,8 @@ def load_config():
 def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
+PAGE_BUTTONS = {"jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
+PREF_KEYS = {"colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
@@ -194,6 +214,8 @@ def device_loop(ids, parse):
 def parse_sb(r):
     if r[0] == 3 and len(r) >= 3:
         m = r[1] | (r[2] << 8); pressed = m & ~sb["mask"]; sb["mask"] = m
+        if pressed and sb["learn"] and sb["learn"] is not True:        # learning a button for the page (jump / back / a colour)
+            b = (pressed & -pressed).bit_length(); send({"k": "learned", "target": sb["learn"], "b": b}); sb["learn"] = False; return
         if pressed and sb["learn"]:                                   # ⚙ "change": the next button pressed becomes the hand-back button
             b = (pressed & -pressed).bit_length(); sb["toggle"] = b; sb["learn"] = False
             c = load_config(); c["toggle_button"] = b; save_config(c); send({"k": "config", "toggle": b, "learned": True}); return
@@ -232,7 +254,9 @@ class H(BaseHTTPRequestHandler):
         for s in shells:
             if not s.alive(): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
-        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"]}))
+        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})}))
+        with attn_lock:
+            for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))
         with listeners_lock: listeners.append(mine)
         try:
             while True:
@@ -246,13 +270,24 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path); q = parse_qs(u.query)
         if not self.guard(q): return self.deny()
         if u.path == "/config":                                       # ⚙: ?learn=1 = the next button pressed becomes the hand-back button
-            if q.get("learn", ["0"])[0] == "1": sb["learn"] = True
+            what = q.get("learn", [""])[0]                             # ?learn=jump / back / color1… = learn a button for the page instead
+            if what == "1": sb["learn"] = True
+            elif what in PAGE_BUTTONS: sb["learn"] = what
+            if q.get("prefs", ["0"])[0] == "1":                        # the page's own settings, kept per computer in config.json
+                try: new = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", "0") or 0), 65536)))
+                except Exception: return self.deny(400)
+                c = load_config(); p = c.get("prefs", {})
+                p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
         except ValueError: s = None
         if s is None: return self.deny(400)
         body = self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
         if u.path == "/in": s.write(body)
+        elif u.path == "/attn":
+            try: m = json.loads(body)
+            except Exception: return self.deny(400)
+            if m.get("s") in ("needs", "working"): set_attn(f, m["s"], str(m.get("r", "")))
         elif u.path == "/resize":
             c, r = int(q.get("c", ["80"])[0]), int(q.get("r", ["24"])[0])
             if 10 <= c <= 500 and 4 <= r <= 300: s.resize(r, c)
