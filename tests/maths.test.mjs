@@ -38,13 +38,13 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'goHome', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
   let SH, slotOf, Q = [1, 0, 0, 0], Qt = [1, 0, 0, 0], W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0;
   const visible = () => slotOf.map((s, i) => s >= 0 ? i : -1).filter(i => i >= 0);
-  const present = () => {}, clickSound = () => {}, devLayout = () => null;
+  const present = () => {}, clickSound = () => {}, devLayout = () => null, select = () => {}, toggleFull = () => {}; let fullFace = -1, zooming = false;
   ${NAMES.map(extract).join('\n')}
   function useShape(name) { SH = buildShape(name); slotOf = Array.from({ length: 18 }, (_, i) => i < SH.slots.length ? i : -1);
     Q = [1, 0, 0, 0]; Qt = [1, 0, 0, 0]; W = [0, 0, 0]; cmdTarget = false; tgtFace = -1; settled = true; lockedFace = 0; prefs = {}; }
@@ -109,6 +109,14 @@ for (const shape of ['cube', 'cuboct', 'rhombi']) {
     run(`useShape('${shape}'); for (let k = 0; k < 7; k++) Qt = rollTo(${rnd() < 0.5 ? '[0, 1, 0]' : '[1, 0, 0]'}, ${rnd() < 0.5 ? 1 : -1}); goTo(${i})`);
     const p = run('pose(Qt)'); check(okPose(p) && p.f === i, `${shape}: jump to ${i} → ${JSON.stringify(p)}`);
   }
+
+  // 4b. the HOME button in hand mode (Chris 13:46: "7 doesn't select face 1"): from a scrambled, settled pose, press home and let the
+  //     spring run. It must end on face 1, upright (the identity pose), not snap back to the nearest screen.
+  { run(`useShape('${shape}'); for (let k = 0; k < 5; k++) Qt = rollTo([0, 1, 0], 1); Q = Qt; settled = false;`);
+    let t = 0; while (t < 20 && !run('settled')) { run('physics(1 / 60, 0, 0, false)'); t += 1 / 60; }
+    run('goHome()'); t = 0; while (t < 20 && !run('settled')) { run('physics(1 / 60, 0, 0, false)'); t += 1 / 60; }
+    const p = run('pose(Q)'), id = run('Math.abs(Math.abs(Q[0]) - 1)');
+    check(run('settled') && p.f === 0 && id < 1e-6, `${shape}: home lands on face 1, upright (front ${p.f}, ${t.toFixed(2)}s)`); }
 
   // 5. the spring: let go 30° off a screen and it settles onto a screen, at the defaults and at every corner of the sliders' range
   const corners = [{}];

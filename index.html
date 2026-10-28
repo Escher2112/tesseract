@@ -424,7 +424,15 @@ function sbButtons(mask) {
   // 09:52 Chris: "make them mappable… it's going to change based on the Spaceball version". Every action reads its button from prefs.buttons
   if (pressed & bit(B.select)) { const i = frontFace(); select(i); }
   if (pressed & bit(B.full)) toggleFull();
-  if (pressed & bit(B.home)) { if (fullFace >= 0) toggleFull(); Qt = [1, 0, 0, 0]; present(Qt); select(frontFace()); }
+  if (pressed & bit(B.home)) goHome();
+}
+// home = face 1, upright. 13:46 Chris: "7 doesn't select face 1". It set the target but not cmdTarget, so in hand mode the very next
+// physics() frame replaced it with the nearest screen and nothing moved. Now it claims the target like goTo does, and leaves full
+// screen first (waiting for the zoom-out, the way openFace does). Covered by tests/maths.test.mjs ("home lands on face 1").
+function goHome() {
+  const go = () => { Qt = [1, 0, 0, 0]; W = [0, 0, 0]; cmdTarget = true; settled = false; present(Qt); select(0); };
+  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
+  else go();
 }
 // the PowerMate (Chris 22:28): turning rolls the cube side to side, or top to bottom; a tap swaps which; a double tap picks the face.
 // A long press (over 0.6 s, no turning) = full screen on/off. About 8 clicks = one face.
