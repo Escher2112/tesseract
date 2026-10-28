@@ -35,6 +35,10 @@ One-time setup: copy `hooks/claude-session-hook.py` to `~/.config/3d-terminal/` 
 
 The hook only acts inside a 3D Terminal face; everywhere else it does nothing. Faces where you'd already closed Claude stay plain shells.
 
+**Codex** sessions come back too, with no setup: at quit the app finds each face's Codex session (it needs at least one message sent)
+and reopens it with `codex resume <id>`. If you start Codex through your own command per CODEX_HOME, map them in
+`~/.config/3d-terminal/config.json`, e.g. `{"codex_launchers": {"~/.codex-work": "workcodex"}}`.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).

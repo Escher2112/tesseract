@@ -50,6 +50,11 @@ class Shell:
         try: r = json.load(open(rec))
         except Exception: return
         if not r.get("active") or not r.get("session_id"): return
+        if r.get("kind") == "codex":
+            cmd = f"cd {shlex.quote(r.get('cwd') or '~')} && {r.get('launcher') or 'codex'} resume {shlex.quote(r['session_id'])}"
+            time.sleep(1.5)
+            if self.alive(): os.write(self.fd, (cmd + "\r").encode())
+            return
         parts = r.get("args", "claude").split()
         keep, skip = [], False
         for a in parts:                                                   # drop any old --resume/--continue, keep the other flags
@@ -92,9 +97,9 @@ class Shell:
         with self.lock: return self.buf.decode("utf-8", errors="replace")
 FACES_DIR = os.path.expanduser("~/.config/3d-terminal/faces")
 shells = [Shell(i) for i in range(FACES)]
-def claude_running_under(pid):                                       # is a claude process anywhere below this shell?
+def program_under(pid, names):                                       # first process below this shell whose name is in names → (pid, name)
     try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
-    except Exception: return False
+    except Exception: return None
     kids = {}
     for row in rows:
         f = row.split(None, 2)
@@ -102,14 +107,42 @@ def claude_running_under(pid):                                       # is a clau
     todo = [pid]
     while todo:
         for c, name in kids.get(todo.pop(), []):
-            if name == "claude": return True
+            if name in names: return (c, name)
             todo.append(c)
-    return False
+    return None
+def claude_running_under(pid): return program_under(pid, {"claude"}) is not None
+# 23:47 Codex too (Chris opened Riven on face 1 to test against). Codex has no start hook, so at quit we look at the codex process
+# itself: its CODEX_HOME (from its environment), its folder, and its newest session file started after it (Codex writes
+# CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl once the first message is sent). Which command reopens it: the
+# "codex_launchers" map in ~/.config/3d-terminal/config.json (CODEX_HOME → e.g. "riven"); default "codex".
+def codex_record(cpid):
+    try:
+        env = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(cpid)], capture_output=True, text=True, timeout=5).stdout
+        home = next((w.split("=", 1)[1] for w in env.split() if w.startswith("CODEX_HOME=")), os.path.expanduser("~/.codex"))
+        cwd = next((l[1:] for l in subprocess.run(["lsof", "-a", "-p", str(cpid), "-d", "cwd", "-Fn"], capture_output=True, text=True,
+                    timeout=5).stdout.split("\n") if l.startswith("n")), os.path.expanduser("~"))
+        started = time.mktime(time.strptime(subprocess.run(["ps", "-o", "lstart=", "-p", str(cpid)], capture_output=True, text=True,
+                    timeout=5).stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+        import glob
+        files = sorted(glob.glob(os.path.join(home, "sessions", "*", "*", "*", "rollout-*.jsonl")), key=os.path.getmtime, reverse=True)
+        for f in files[:40]:
+            if os.path.getctime(f) < started - 5: continue                # made before this codex started: someone else's
+            first = json.loads(open(f).readline()); pl = first.get("payload", first)
+            if pl.get("cwd", cwd) == cwd and pl.get("id"):
+                launch = load_config().get("codex_launchers", {}).get(home.replace(os.path.expanduser("~"), "~"), "codex")
+                return {"kind": "codex", "session_id": pl["id"], "cwd": cwd, "codex_home": home, "launcher": launch, "active": True}
+    except Exception: pass
+    return None
 def stop_and_remember():                                             # before the shells close: which faces had Claude running?
     for s in shells:
         rec = os.path.join(FACES_DIR, f"face-{s.face + 1}.json")
-        if not os.path.exists(rec): continue
-        try: r = json.load(open(rec)); r["active"] = bool(s.pid and claude_running_under(s.pid)); json.dump(r, open(rec, "w"))
+        try:
+            cx = program_under(s.pid, {"codex"}) if s.pid else None
+            r = codex_record(cx[0]) if cx else None
+            if r: os.makedirs(FACES_DIR, exist_ok=True); json.dump(r, open(rec, "w")); continue
+            if not os.path.exists(rec): continue
+            r = json.load(open(rec)); r["active"] = bool(s.pid and claude_running_under(s.pid)) and r.get("kind", "claude") == "claude"
+            json.dump(r, open(rec, "w"))
         except Exception: pass
 
 # ---------- the Spaceball + PowerMate (exclusive while this runs, so macOS stops scrolling/pointing with them)
