@@ -57,7 +57,12 @@
   .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
   .aq .x { margin-left: 10px; opacity: .55; }  .aq .x:hover { opacity: 1; }
   #prefs { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); line-height: 2; }
-  #prefs input[type=color] { width: 26px; height: 18px; padding: 0; border: 0; background: none; vertical-align: middle; }
+  .chip { display: inline-block; width: 26px; height: 16px; border-radius: 4px; vertical-align: middle; cursor: pointer; border: 1px solid rgb(255 255 255 / .5); }
+  #palpop { position: fixed; z-index: 9; width: 272px; padding: 10px; background: rgba(20, 16, 40, .98); border: 1px solid var(--edge); border-radius: 8px;
+            display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; box-shadow: 0 8px 30px rgb(0 0 0 / .6); }
+  #palpop .palttl, #palpop .palname { grid-column: 1 / -1; color: #d8d0ff; } #palpop .palname { text-align: center; font-weight: 700; }
+  #palpop .sw { width: 26px; height: 26px; border-radius: 5px; border: 1px solid rgb(255 255 255 / .35); cursor: pointer; padding: 0; }
+  #palpop .sw:hover { transform: scale(1.15); } #palpop .sw.on { outline: 3px solid #fff; outline-offset: 1px; }
   #prefs input[type=number] { width: 42px; } #prefs a { color: #c9b8ff; } #prefs button { font: inherit; margin-right: 4px; }
   #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 7; padding: 4px 12px; border-radius: 6px;
            background: rgba(20, 16, 40, .9); color: #d8d0ff; display: none; }
@@ -498,6 +503,29 @@ function jumpNext() {                                                    // olde
 }
 function goBack() { const c = backStack.pop(); if (!c) { toast('nothing to go back to'); return; } openFace(c.i, c.full); }
 
+// ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
+// working for me"). The browser's own colour input may not open inside the app, so this is our own grid: 8 hues × 4 (bright, light,
+// deep, neutrals). Every colour has a NAME (shown on hover and beside its slot): Chris is colour-blind, so names matter as much as hue.
+const PALETTE32 = [
+  ['#ff3b30', 'red'], ['#ff9500', 'orange'], ['#ffd60a', 'yellow'], ['#30d158', 'green'], ['#00c7be', 'teal'], ['#0a84ff', 'blue'], ['#bf5af2', 'purple'], ['#ff2d92', 'hot pink'],
+  ['#ff8a80', 'light red'], ['#ffc078', 'peach'], ['#fff59d', 'pale yellow'], ['#a5f3a0', 'mint'], ['#84ffff', 'aqua'], ['#82b1ff', 'sky blue'], ['#e1b0ff', 'lavender'], ['#ff9ecb', 'pink'],
+  ['#b71c1c', 'dark red'], ['#c25e00', 'burnt orange'], ['#b8a000', 'mustard'], ['#1b7a33', 'forest green'], ['#00796b', 'dark teal'], ['#0d47a1', 'navy blue'], ['#6a1b9a', 'deep purple'], ['#ad1457', 'raspberry'],
+  ['#ffffff', 'white'], ['#c0c0c0', 'silver'], ['#808080', 'grey'], ['#8d6e63', 'brown'], ['#9e9d24', 'olive'], ['#3949ab', 'indigo'], ['#ff00ff', 'magenta'], ['#00e5ff', 'cyan']];
+const OKABE = { '#e69f00': 'orange (default)', '#56b4e9': 'sky blue (default)', '#f0e442': 'yellow (default)', '#cc79a7': 'pink-purple (default)' };
+function colourName(hex) { const h = (hex || '').toLowerCase(), hit = PALETTE32.find(([c]) => c === h); return hit ? hit[1] : (OKABE[h] || h); }
+function openPalette(g, chip) {
+  closePalette(); const pop = document.createElement('div'); pop.id = 'palpop';
+  pop.innerHTML = `<div class="palttl">colour ${g}: pick one</div>` + PALETTE32.map(([c, n]) =>
+    `<button class="sw${prefs.palette[g - 1].toLowerCase() === c ? ' on' : ''}" data-c="${c}" title="${n}" style="background:${c}"></button>`).join('') + `<div class="palname" id="palname">${colourName(prefs.palette[g - 1])}</div>`;
+  document.body.appendChild(pop); const r = chip.getBoundingClientRect();
+  pop.style.top = Math.min(innerHeight - pop.offsetHeight - 8, r.bottom + 6) + 'px'; pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.left - 20)) + 'px';
+  pop.querySelectorAll('.sw').forEach(b => { b.onmouseenter = () => { document.getElementById('palname').textContent = b.title; };
+    b.onclick = e => { e.stopPropagation(); prefs.palette[g - 1] = b.dataset.c; savePrefs(); paint(); tint(); renderAttn(); closePalette(); renderPrefs(); }; });
+  pop.onclick = e => e.stopPropagation();
+}
+function closePalette() { const p = document.getElementById('palpop'); if (p) p.remove(); }
+addEventListener('click', closePalette);
+
 // ---------- the ⚙ panel's settings for both
 function renderPrefs() {
   const el = document.getElementById('prefs'), B = prefs.buttons, keys = ['7', '8', '9', '0'];
@@ -509,7 +537,7 @@ function renderPrefs() {
     `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
     ` motes <input type="range" id="p-motes" min="0" max="2" step="0.25" value="${prefs.motes}"><br>` +
     `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
-    [1, 2, 3, 4].map(g => `<input type="color" data-pal="${g}" value="${prefs.palette[g - 1]}"> ${g}: ball button <b>${B['color' + g]}</b> ${learn('color' + g)} · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
+    [1, 2, 3, 4].map(g => `<span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span> ${g}: <b>${colourName(prefs.palette[g - 1])}</b> · ball button <b>${B['color' + g]}</b> ${learn('color' + g)} · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
     `<br>colour this face: ${[1, 2, 3, 4].map(g => `<button data-assign="${g}">${g}</button>`).join('')}` +
     `<br>glow <input type="range" id="p-glow" min="0" max="2" step="0.1" value="${prefs.glow}"> <label><input type="checkbox" id="p-lowfx" ${prefs.lowfx ? 'checked' : ''}> low effects</label>` +
     `<br><label><input type="checkbox" id="p-cluster" ${prefs.cluster ? 'checked' : ''}> group faces by colour</label> (moves faces, never sessions)` +
@@ -519,7 +547,7 @@ function renderPrefs() {
     `<br>fade the pulse toward white over <input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin}"> min (0 = never)` +
     `<br>jump to the oldest waiting: ball button <b>${B.jump}</b> ${learn('jump')} · Ctrl+Option+J` +
     `<br>back to where you were: ball button <b>${B.back}</b> ${learn('back')} · Ctrl+Option+B`;
-  el.querySelectorAll('[data-pal]').forEach(i => { i.oninput = () => { prefs.palette[+i.dataset.pal - 1] = i.value; paint(); tint(); }; i.onchange = savePrefs; });
+  el.querySelectorAll('[data-pal]').forEach(c => { c.onclick = e => { e.stopPropagation(); openPalette(+c.dataset.pal, c); }; });
   el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
   el.querySelectorAll('[name=shape]').forEach(r => { r.onchange = () => { prefs.shape = r.value; savePrefs(); applyPrefs(); }; });
   el.querySelectorAll('[data-bring]').forEach(a => { a.onclick = e => { e.preventDefault(); bringHere(+a.dataset.bring); }; });

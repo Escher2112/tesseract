@@ -15,6 +15,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# TDT_HOME: a test copy gets its own settings + session records (2026-10-28: Lyra's test servers read and rewrote the REAL ones,
+# reopening Chris's sessions inside the test cube and marking faces "not running" on shutdown). Default = the real place.
+HOME3 = os.path.expanduser(os.environ.get("TDT_HOME") or "~/.config/3d-terminal")
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8781   # the Mac app uses 8782
 KEY = secrets.token_urlsafe(18); FACES = 18   # 2026-10-28 shapes: up to 18 sessions (rhombicuboctahedron); started only when needed
 HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
@@ -31,7 +34,7 @@ def clean_env(face=None):
     env.update(TERM="xterm-256color", COLORTERM="truecolor", SESSION_CUBE="1")
     if face is not None: env["SESSION_CUBE_FACE"] = str(face + 1)   # 1-6: lets the Claude hook record which conversation is on which face
     # 2026-10-28 Attention Routing: the attention hook reports "needs you" / "working" back to THIS server (port + this run's key)
-    env.update(SESSION_CUBE_URL=f"http://127.0.0.1:{PORT}", SESSION_CUBE_KEY=KEY)
+    env.update(SESSION_CUBE_URL=f"http://127.0.0.1:{PORT}", SESSION_CUBE_KEY=KEY, SESSION_CUBE_HOME=HOME3)
     return env
 
 class Shell:
@@ -102,7 +105,7 @@ class Shell:
             except ProcessLookupError: pass
     def replay(self):
         with self.lock: return self.buf.decode("utf-8", errors="replace")
-FACES_DIR = os.path.expanduser("~/.config/3d-terminal/faces")
+FACES_DIR = os.path.join(HOME3, "faces")
 # ---------- Attention Routing (Chris + Riven's spec, 2026-10-28): which faces are waiting on a person. Set ONLY by the hook's real
 # events (a permission prompt, a question, a finished turn) and cleared ONLY by real progress (you typed a prompt, a tool ran, the
 # session ended, the shell died). Looking at a face never clears it. "since" stays the time it FIRST started waiting.
@@ -173,7 +176,7 @@ def stop_and_remember():                                             # before th
 SB_IDS = "3dconnexion"; sb = {"free": False, "reopen": False, "mask": 0, "learn": False}
 # Which button hands the ball back to the Mac is a setting (23:23, Chris: smaller 3D mice have only 2 buttons). Default: button 6.
 # Kept per computer in ~/.config/3d-terminal/config.json; set from the page's ⚙ panel by pressing the button you want.
-CONFIG = os.path.expanduser("~/.config/3d-terminal/config.json")
+CONFIG = os.path.join(HOME3, "config.json")
 def load_config():
     try: return json.load(open(CONFIG))
     except Exception: return {}

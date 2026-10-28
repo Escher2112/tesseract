@@ -23,10 +23,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startServer()
     }
 
-    // The core lives in the app's Resources/core. Python with hidapi (for the Spaceball / PowerMate) is the private venv that
-    // build.sh makes; without it, plain python3 still runs the cube (keyboard + mouse only).
+    // The core (server.py, index.html, vendor/) lives OUTSIDE the app, in ~/Library/Application Support/3D Terminal/core (build.sh puts
+    // it there). 2026-10-28 Chris: "every time I restart the app it asks like three different 'allow' items". macOS remembers those
+    // answers for a self-signed app by a fingerprint of the WHOLE bundle, so every page/server update made it a new app. Now updates
+    // only touch that folder and the bundle (this launcher + icon) stays the same. Python with hidapi (Spaceball / PowerMate) is the
+    // private venv build.sh makes beside it; without it, plain python3 still runs the cube (keyboard + mouse only).
     func startServer() {
-        let core = Bundle.main.resourceURL!.appendingPathComponent("core")
+        let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/3D Terminal")
+        var core = support.appendingPathComponent("core")
+        if !FileManager.default.fileExists(atPath: core.appendingPathComponent("server.py").path) {
+            core = Bundle.main.resourceURL!.appendingPathComponent("core")   // older builds kept it inside the app
+        }
         let venv = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/3D Terminal/venv/bin/python3").path
         let p = Process()

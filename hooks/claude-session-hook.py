@@ -17,5 +17,5 @@ for _ in range(6):
     ppid, _, a = line.partition(" ")
     if os.path.basename(a.split(" ")[0]) == "claude" or " claude " in f" {a} ": args = a; break
     pid = int(ppid)
-d = os.path.expanduser("~/.config/3d-terminal/faces"); os.makedirs(d, exist_ok=True)
+d = os.path.join(os.path.expanduser(os.environ.get("SESSION_CUBE_HOME") or "~/.config/3d-terminal"), "faces"); os.makedirs(d, exist_ok=True)
 json.dump({"session_id": sid, "cwd": data.get("cwd") or os.getcwd(), "args": args}, open(os.path.join(d, f"face-{face}.json"), "w"))
