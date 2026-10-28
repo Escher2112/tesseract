@@ -457,6 +457,11 @@ function frame(now) {
   const zWins = navMode() !== 'hand' || Math.abs(z) > 1.5 * other;
   if (zWins && z < -PRESS && zArmed) { zArmed = false; pressDown(); } else if (zWins && z > PRESS && zArmed) { zArmed = false; pullUp(); }
   else if (Math.abs(z) < RELEASE) zArmed = true;
+  // 11:16 Chris: "are the motes drawing even when in fullscreen? … all background animations should be stopped in full screen". They
+  // were (gl.js redrew the solid + motes ~30×/s behind an opaque full-screen terminal). Now in full screen the frame stops HERE: input
+  // above still works (pull up / push), everything below (physics, the solid, the offering, face upkeep) and gl.js stand still.
+  window.cubeFull = fullFace >= 0 && !zooming;
+  if (window.cubeFull) { requestAnimationFrame(frame); return; }
   const spinV = Math.abs(z) > 120 ? 0 : -sbR[2], tiltV = Math.abs(z) > 120 ? 0 : sbR[0];   // pushing leaks twist: no turning mid-push
   const analog = navMode() !== 'step' && fullFace < 0;
   if (!analog) {
@@ -474,7 +479,8 @@ function frame(now) {
   if (!document.body.classList.contains('gl')) light(shown);
   const fr = frontFace(); faces.forEach((f, j) => { f.el.classList.toggle('front', j === fr); f.el.classList.toggle('mark', j === selFace && selFace !== fr); });
   // 6 (Riven): the space steps back while something waits for Chris or he's inside a face (prefs.bgDim of the way; 0 = never)
-  const bgLevel = (fullFace >= 0 || faces.some(f => waiting(f.i))) ? 1 - (prefs.bgDim ?? 0.6) : 1; window.cubeBg = bgLevel; document.getElementById('bg').style.opacity = bgLevel;
+  const bgLevel = (fullFace >= 0 || faces.some(f => waiting(f.i))) ? 1 - (prefs.bgDim ?? 0.6) : 1; window.cubeBg = bgLevel;
+  if (frame.bg !== bgLevel) { frame.bg = bgLevel; document.getElementById('bg').style.opacity = bgLevel; }   // write styles only when they change
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -606,7 +612,7 @@ function drawBg(now) {
   }
 }
 let bgPrev = 0;
-function bgLoop(now) { if (!document.hidden && !document.body.classList.contains('gl') && now - bgPrev > (document.hasFocus() ? 32 : 250) && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
+function bgLoop(now) { if (!document.hidden && fullFace < 0 && !document.body.classList.contains('gl') && now - bgPrev > (document.hasFocus() ? 32 : 250) && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
 addEventListener('resize', sizeBg);
 function assignColor(g) {
   const i = cur(), was = prefs.colors[i]; if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
@@ -753,7 +759,7 @@ function offer(now) {
   if (lift.face >= 0) { const el = faces[lift.face].el; el.style.setProperty('--lift', (lift.v * H).toFixed(2) + 'px');
     el.style.transition = lift.v > 0 && !lift.seated ? 'none' : ''; }
   // 3) the rest of the solid steps back a little while a face is offered (a dark veil over the other screens, not a filter: cheap)
-  document.documentElement.style.setProperty('--offer', Math.max(0, Math.min(1, lift.v)).toFixed(3));
+  const ov = Math.max(0, Math.min(1, lift.v)).toFixed(3); if (offer.ov !== ov) { offer.ov = ov; document.documentElement.style.setProperty('--offer', ov); }
   faces.forEach(f => f.el.classList.toggle('offered', f.i === lift.face && lift.v > 0.01));
   if (lift.seated && !lift.thunked) { lift.thunked = true; clickSound(520, 0.18, 'sndRise'); } if (!lift.rising) lift.thunked = false;  // seated (after the overshoot): a soft low thunk
   if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) faces[lift.face].el.style.removeProperty('--lift'); lift.face = fr; }

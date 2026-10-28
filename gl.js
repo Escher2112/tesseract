@@ -292,6 +292,7 @@ export function apply() {                                                  // re
 function loop(now) {
   requestAnimationFrame(loop);
   if (prefs().gl === false || document.hidden || !window.cubeSH) return;
+  if (window.cubeFull) { dirty = true; return; }                          // full screen covers us: draw nothing (and redraw at once on the way out)
   if (builtFor !== window.cubeSH) { buildBody(); dirty = true; }
   if (mesh && updateOffer()) dirty = true;
   const q = window.cubeShown || [1, 0, 0, 0], qs = q.map(v => v.toFixed(5)).join(), moving = qs !== lastQ;
