@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web = WKWebView(frame: .zero, configuration: cfg)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
                           styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "3D Terminal"
+        window.title = "Tesseract"
         window.backgroundColor = .black
         window.collectionBehavior = [.fullScreenPrimary]
         container = NSView(frame: NSRect(x: 0, y: 0, width: 1400, height: 900))
@@ -147,11 +147,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         server = p
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) {       // still nothing after 15 s: tell the user instead of a black window
             if self.web.url == nil {
-                self.showError("3D Terminal's helper didn't start.<br><br>It needs Python 3 (the Xcode command-line tools include it).<br>Quit and reopen to try again.")
+                self.showError("Tesseract's helper didn't start.<br><br>It needs Python 3 (the Xcode command-line tools include it).<br>Quit and reopen to try again.")
             }
         }
         p.terminationHandler = { proc in                             // the helper died while the app is open
-            DispatchQueue.main.async { if proc.terminationReason != .exit || proc.terminationStatus != 0 { self.showError("3D Terminal's helper stopped unexpectedly. Quit and reopen to restart it.") } }
+            DispatchQueue.main.async { if proc.terminationReason != .exit || proc.terminationStatus != 0 { self.showError("Tesseract's helper stopped unexpectedly. Quit and reopen to restart it.") } }
         }
         DispatchQueue.global().async {                      // wait for the line with the URL (it carries a per-run key)
             let h = out.fileHandleForReading; var seen = ""
@@ -182,7 +182,7 @@ app.delegate = delegate
 app.setActivationPolicy(.regular)
 let menu = NSMenu()
 let appItem = NSMenuItem(); menu.addItem(appItem)
-let appMenu = NSMenu(); appMenu.addItem(withTitle: "Quit 3D Terminal", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+let appMenu = NSMenu(); appMenu.addItem(withTitle: "Quit Tesseract", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 appItem.submenu = appMenu
 let editItem = NSMenuItem(); menu.addItem(editItem)
 let edit = NSMenu(title: "Edit")                                  // (cut / undo too: the mini-browsers' text fields need them)
