@@ -38,14 +38,14 @@ class DOMMatrix {                                  // column-major 4×4, the sam
 class DOMPoint { constructor(x = 0, y = 0, z = 0, w = 1) { Object.assign(this, { x, y, z, w }); } }
 
 const NAMES = ['V', 'placeMatrix', 'upFor', 'buildShape', 'qMul', 'qAxis', 'qNorm', 'qMatrix', 'faceAt', 'rotV', 'frontOf', 'rollTo', 'alignQ',
-  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
+  'goTo', 'homeFace', 'goHome', 'hist', 'noteVisit', 'drumPhys', 'MOTION_DEF', 'MOTION_SHAPE', 'mo', 'qConj', 'rotVecQ', 'errVec', 'nearestTarget', 'shape', 'navMode', 'handInput', 'physics'];
 const ctx = vm.createContext({ DOMMatrix, DOMPoint, Math, console: { log() {} } });
 vm.runInContext(`
   const S = 600; let prefs = {}, sbT = [0, 0, 0], sbR = [0, 0, 0], ballRead = '';
   let SH, slotOf, Q = [1, 0, 0, 0], Qt = [1, 0, 0, 0], W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0;
   const visible = () => slotOf.map((s, i) => s >= 0 ? i : -1).filter(i => i >= 0);
   const performance = { now: () => 0 }; let hpos = -1, histNav = 0;
-  const present = () => {}, clickSound = () => {}, devLayout = () => null, select = () => {}, toggleFull = () => {}; let fullFace = -1, zooming = false;
+  const present = () => {}, clickSound = () => {}, devLayout = () => null, select = () => {}, toggleFull = () => {}, drumOpen = () => false; let fullFace = -1, zooming = false;
   ${NAMES.map(extract).join('\n')}
   function useShape(name) { SH = buildShape(name); slotOf = Array.from({ length: 18 }, (_, i) => i < SH.slots.length ? i : -1);
     Q = [1, 0, 0, 0]; Qt = [1, 0, 0, 0]; W = [0, 0, 0]; cmdTarget = false; tgtFace = -1; settled = true; lockedFace = 0; prefs = {}; }
@@ -142,5 +142,20 @@ for (const shape of ['cube', 'cuboct', 'rhombi']) {
     check(ok, `${shape}: settle ${JSON.stringify(motion)} dt=${dt.toFixed(3)} → ${ok ? t.toFixed(2) + 's' : 'never in 60s ' + JSON.stringify(p)}`);
   }
 }
+// 6. the waiting drum (14:02 Chris: "push up and down… they roll past… accel, decel, each one falling into a detent")
+console.log('drum');
+for (const dt of [1 / 60, 1 / 30, 0.05]) {
+  const [vHeld, p, v, tRest] = run(`(() => { const d = { p: 0, v: 0 }; let t = 0; for (; t < 0.6; t += ${dt}) drumPhys(d, 1, ${dt}); const vh = d.v;
+    for (t = 0; t < 6 && (d.v !== 0 || d.p !== Math.round(d.p)); t += ${dt}) drumPhys(d, 0, ${dt}); return [vh, d.p, d.v, t]; })()`);
+  check(vHeld > 1, `drum dt=${dt.toFixed(3)}: a full push gets it rolling (${vHeld.toFixed(2)} facets/s after 0.6 s)`);
+  check(v === 0 && p === Math.round(p) && Math.abs(p) >= 1, `drum dt=${dt.toFixed(3)}: let go, it locks onto a facet (p=${p}, ${tRest.toFixed(2)} s)`);
+}
+{ const d = run('(() => { const d = { p: 0.3, v: 0 }; for (let k = 0; k < 600; k++) drumPhys(d, 0, 1 / 60); return d; })()');
+  check(d.p === 0 && d.v === 0, `drum: a nudge short of halfway falls back into the same detent (p=${d.p})`); }
+{ const d = run('(() => { const d = { p: 0, v: 0 }; for (let k = 0; k < 600; k++) drumPhys(d, 0, 1 / 60); return d; })()');
+  check(d.p === 0 && d.v === 0, `drum: at rest with no push it stays put`); }
+{ const n = run('(() => { const d = { p: 0, v: 0 }; let c = 0; for (let k = 0; k < 120; k++) c += drumPhys(d, 1, 1 / 60); for (let k = 0; k < 600; k++) c += drumPhys(d, 0, 1 / 60); return [c, d.p]; })()');
+  check(n[0] === Math.abs(n[1]), `drum: one click per facet that goes by (${n[0]} clicks, ended ${n[1]} facets on)`); }
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

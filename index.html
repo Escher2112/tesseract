@@ -203,6 +203,36 @@
   .qline kbd { flex: none; min-width: 112px; font: 600 11.5px Menlo, monospace; color: #e6e8ec; }
   .qline span { color: #b7bbc3; }
   .qfoot { margin-top: 14px; text-align: center; color: #6f737c; font-size: 11px; letter-spacing: .06em; }
+  /* 14:02 Chris: hold the jump button = the WAITING DRUM. "make it a faceted cylinder with each request on a face and you roll through
+     them… obsidian faceted cylinder with chrome end cap bearings". CSS 3D: N obsidian facets round a horizontal axis, chrome polygon end
+     caps with a bearing hub, a fixed bearing housing outside each cap. The ball rolls it with inertia; every facet is a detent. */
+  #drum { position: fixed; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+          background: rgb(3 3 6 / .55); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+  #drum.on { display: flex; animation: qIn .18s ease-out both; }
+  .dttl { white-space: nowrap; font: 600 13px Didot, "Bodoni 72", Optima, Georgia, serif; letter-spacing: .42em; }
+  .dttl span { margin-right: -.42em; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .dstage { perspective: 1400px; height: calc(var(--dh) * 2.4); width: calc(var(--dw) + 200px); display: flex; align-items: center; justify-content: center; }
+  .drot { position: relative; width: var(--dw); height: var(--dh); transform-style: preserve-3d; }
+  .dface { position: absolute; inset: 0; box-sizing: border-box; display: flex; align-items: center; gap: 16px; padding: 0 22px; backface-visibility: hidden;
+           color: #d8dbe1; font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+           background: linear-gradient(180deg, rgb(255 255 255 / .1) 0%, rgb(255 255 255 / .02) 40%, transparent 52%), radial-gradient(130% 160% at 30% 0%, #2a2733 0%, #121117 50%, #050507 100%);
+           box-shadow: inset 0 1px 0 rgb(255 255 255 / .28), inset 0 -1px 0 rgb(0 0 0 / .7), inset 0 0 0 1px rgb(205 209 216 / .1); }
+  .dface::after { content: ''; position: absolute; inset: 0; background: #000; opacity: var(--shade, 0); pointer-events: none; }
+  .dface.front { box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 0 0 1px rgb(217 220 226 / .55), 0 0 26px rgb(201 204 211 / .25); }
+  .dface .dbar { width: 4px; align-self: stretch; margin: 14px 0; border-radius: 3px; background: #4a4d55; flex: none; }
+  .dface .dno { font: 600 26px Didot, "Bodoni 72", Georgia, serif; min-width: 44px; text-align: center; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .dface .dtx { flex: 1; min-width: 0; } .dface .dtx b { display: block; font-size: 14.5px; color: #eef0f3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dface .dtx small { display: block; color: #9a9ea7; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dface .dage { color: #8d919a; font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+  .dcap { position: absolute; left: 50%; top: 50%; backface-visibility: visible;
+          background: conic-gradient(from 10deg, #eef0f3, #8a8e97 14%, #f6f7f9 27%, #6d7179 41%, #dfe2e7 55%, #7d818a 69%, #f3f5f7 83%, #9a9fa8 92%, #eef0f3); }
+  .dcap::before { content: ''; position: absolute; inset: 22%; border-radius: 50%; background: radial-gradient(circle, #15151a 0 52%, #c9ccd3 54% 60%, #3b3e45 62% 100%); box-shadow: 0 0 0 2px #2b2d33; }
+  .dhub { position: absolute; left: 50%; top: 50%; border-radius: 50%; transform-style: preserve-3d;
+          background: radial-gradient(circle at 38% 32%, #ffffff 0%, #d9dce2 18%, #8a8e97 46%, #e6e8ec 62%, #6d7179 78%, #2b2d33 100%);
+          box-shadow: 0 0 0 2px #111, 0 0 0 4px #c9ccd3, 0 0 0 5px #45484f, 0 6px 18px rgb(0 0 0 / .7); }
+  .dhub::after { content: ''; position: absolute; inset: 36%; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #f6f7f9, #7d818a 60%, #2b2d33); box-shadow: 0 0 0 1px #111; }
+  .dhint { color: #7d818a; font-size: 11.5px; letter-spacing: .06em; }
+  body.lowfx #drum.on { animation: none; } @media (prefers-reduced-motion: reduce) { #drum.on { animation: none; } }
   body.lowfx .qcard, body.lowfx .qname::after { animation: none; } body.lowfx .qname::after { display: none; }
   @media (prefers-reduced-motion: reduce) { .qcard, .qname::after { animation: none; } .qname::after { display: none; } }
   body.lowfx #badge::after { animation: none; display: none; }
@@ -211,7 +241,7 @@
 <body>
 <canvas id="bg"></canvas><div id="scene"><div id="cube"></div></div>
 <div id="full"><div class="hdr" id="fullhdr"></div></div>
-<div id="qref" role="dialog" aria-label="Tesseract quick reference"></div><div id="badge" aria-label="Tesseract"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1.1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>
+<div id="drum" role="dialog" aria-label="Waiting sessions"></div><div id="qref" role="dialog" aria-label="Tesseract quick reference"></div><div id="badge" aria-label="Tesseract"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1.1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>
 <div id="gear" title="Settings">⚙</div><span id="tog" hidden>6</span>
 <div id="help" class="overlay"><div class="dialog" role="dialog" aria-label="Tesseract settings">
   <div class="dhead"><h2>Tesseract</h2><span class="dsub" id="dsub"></span><button class="dx" id="dclose" title="Close (Esc)">×</button></div>
@@ -452,15 +482,16 @@ function toggleFull() {
     if (web) { showWeb(i); setTimeout(() => { if (fullFace === i) fullSnap.style.display = 'none'; }, 120); }   // the live browser covers it first
   };
 }
-function pressDown() { const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
-function pullUp() { if (fullFace >= 0) toggleFull(); }
+function pressDown() { if (drumOpen()) { drumGo(); return; } const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
+function pullUp() { if (drumOpen()) { showDrum(false); return; } if (fullFace >= 0) toggleFull(); }
 function sbButtons(mask) {
   const pressed = mask & ~sbMask, released = sbMask & ~mask; sbMask = mask;
   const B = prefs.buttons, bit = n => (n ? 1 << (n - 1) : 0);
   for (let g = 1; g <= 4; g++) { const b = bit(B['color' + g]); if (pressed & b) colorDown(g); if (released & b) colorUp(g); }
   if (qrefOpen() && pressed && !(pressed & bit(B.quickref))) showQuickRef(false);   // any other button closes the card, then does its job
   if (pressed & bit(B.quickref)) showQuickRef(!qrefOpen());
-  if (pressed & bit(B.jump)) jumpNext();
+  if (pressed & bit(B.jump)) { if (drumOpen()) { showDrum(false); jHold = null; } else jHold = setTimeout(() => { jHold = 'long'; showDrum(true); }, 500); }
+  if (released & bit(B.jump)) { if (jHold && jHold !== 'long') { clearTimeout(jHold); jumpNext(); } jHold = null; }   // tap = jump · hold = the drum
   if (pressed & bit(B.back)) goBack();
   if (pressed & bit(B.forward)) goForward();
   if (!pressed) return;
@@ -507,7 +538,7 @@ addEventListener('keydown', e => {
   if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
-  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen());
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen()); else if (e.code === 'KeyW') showDrum(!drumOpen());
   else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
@@ -539,7 +570,7 @@ function frame(now) {
   if (window.cubeFull) { requestAnimationFrame(frame); return; }
   const spinV = Math.abs(z) > 120 ? 0 : -sbR[2], tiltV = Math.abs(z) > 120 ? 0 : sbR[0];   // pushing leaks twist: no turning mid-push
   const analog = navMode() !== 'step' && fullFace < 0;
-  if (!analog) {
+  if (!analog && !drumOpen()) {
     if (Math.abs(spinV) >= Math.abs(tiltV)) { stepper('y', spinV, now, s => turn(s, 0)); armed.p = true; }
     else { stepper('p', tiltV, now, s => turn(0, s)); armed.y = true; }
   }
@@ -996,13 +1027,72 @@ function buttonsTable() {
     `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>`;
 }
 
+// ---------- the WAITING DRUM (14:02 Chris: "hold 5 = a list of waiting sessions… push up and down on the ball and they roll past and
+// highlight, push in to go… accel, decel, each one falling into a detent… make it a faceted cylinder with each request on a face…
+// obsidian faceted cylinder with chrome end cap bearings"). Waiting sessions, oldest first; when nothing waits, every session (a switcher).
+// drumPhys is pure (tests/maths.test.mjs): p = position in facets, v = facets/s, u = the ball's push (-1..1). Held: push + a weak notch
+// spring (you feel each facet go by); let go: a firm spring to the nearest facet, a little overshoot, then it locks. Returns detents crossed.
+let jHold = null; const drum = { p: 0, v: 0, n: 0, items: [], raf: 0, last: 0, front: -1 };
+const drumEl = document.getElementById('drum'), drumOpen = () => drumEl.classList.contains('on');
+function drumPhys(d, u, dt) {
+  const before = Math.round(d.p), steps = Math.max(1, Math.ceil(dt / 0.004)), h = dt / steps, held = Math.abs(u) > 0.001;
+  for (let k = 0; k < steps; k++) { const off = d.p - Math.round(d.p);
+    const a = held ? 16 * u - 9 * off - 2.6 * d.v : -70 * off - 11 * d.v; d.v += a * h; d.p += d.v * h; }
+  if (!held && Math.abs(d.v) < 0.03 && Math.abs(d.p - Math.round(d.p)) < 0.004) { d.p = Math.round(d.p); d.v = 0; }
+  return Math.abs(Math.round(d.p) - before);
+}
+const drumIdx = d => ((Math.round(d.p) % d.n) + d.n) % d.n;
+function drumItems() {
+  const ago = since => { const m = Math.max(0, Math.round((Date.now() - since) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since);
+  const list = w.length ? w : visible();
+  return { waiting: w.length > 0, rows: list.map(i => ({ i, title: faces[i].title || (isWeb(i) ? faces[i].webTitle || 'browser' : 'shell'),
+    why: waiting(i) ? att[i].r : (i === cur() ? 'you are here' : 'not waiting'), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] })) };
+}
+function showDrum(on) {
+  if (!on) { drumEl.classList.remove('on'); cancelAnimationFrame(drum.raf); drumEl.replaceChildren(); return; }
+  showQuickRef(false); const { waiting: anyW, rows } = drumItems();
+  drum.items = rows; drum.n = Math.max(rows.length + 2, 8);   // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends) drum.p = 0; drum.v = 0; drum.front = -1;
+  const n = drum.n, dh = 84, dw = Math.min(640, innerWidth - 200), r = dh / (2 * Math.tan(Math.PI / n)), R = dh / (2 * Math.sin(Math.PI / n)), al = 360 / n;
+  const poly = [...Array(n)].map((_, j) => { const f = (j + 0.5) * 2 * Math.PI / n; return `${(50 + 50 * Math.cos(f)).toFixed(2)}% ${(50 + 50 * Math.sin(f)).toFixed(2)}%`; }).join(',');
+  const facesHtml = [...Array(n)].map((_, k) => { const it = rows[k];
+    const bar = it && it.g ? `background:${prefs.palette[it.g - 1]}` : '';
+    return `<div class="dface" data-k="${k}" style="transform: rotateX(${-k * al}deg) translateZ(${r.toFixed(2)}px)">` + (it ?
+      `<span class="dbar" style="${bar}"></span><span class="dno">${it.i + 1}</span><span class="dtx"><b>${esc(it.title)}</b><small>${esc(it.why)}${it.g ? ' · ' + esc(colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '')) : ''}</small></span><span class="dage">${esc(it.age)}</span>` : '') + `</div>`; }).join('');
+  const cap = side => `<div class="dcap" style="width:${2 * R}px;height:${2 * R}px;margin:${-R}px 0 0 ${-R}px;clip-path:polygon(${poly});transform: translateX(${side * dw / 2}px) rotateY(-90deg)"></div>`;
+  const hub = side => `<div class="dhub" style="width:${R}px;height:${R}px;margin:${-R / 2}px 0 0 ${-R / 2}px;transform: translateX(${side * (dw / 2 + R * 0.24 + 18)}px) rotateY(${side * -64}deg)"></div>`;
+  drumEl.style.setProperty('--dh', dh + 'px'); drumEl.style.setProperty('--dw', dw + 'px');
+  drumEl.innerHTML = `<div class="dttl"><span>${anyW ? `WAITING · ${rows.length}` : 'NOTHING WAITING · ALL SESSIONS'}</span></div>` +
+    `<div class="dstage">${hub(-1)}<div class="drot" id="drot">${facesHtml}${cap(-1)}${cap(1)}</div>${hub(1)}</div>` +
+    `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div>`;
+  drumEl.classList.add('on'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame);
+}
+function drumFrame(now) {
+  if (!drumOpen()) return; const dt = Math.min(0.05, (now - drum.last) / 1000); drum.last = now;
+  const h = handInput(false, true), m = mo(); let u = shape(h.iy, m); u = -u + (drum.kick || 0); drum.kick = 0;   // push forward = the next one rolls up
+  let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
+  if (drum.p < 0 || drum.p > hi) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
+  if (crossed) clickSound(2600, 0.16);
+  const n = drum.n, al = 360 / n, rot = document.getElementById('drot'); if (rot) rot.style.transform = `rotateX(${drum.p * al}deg)`;
+  const fi = drumIdx(drum);
+  drumEl.querySelectorAll('.dface').forEach(el => { const k = +el.dataset.k, b = ((k - drum.p) % n + n + n / 2) % n - n / 2;
+    el.style.setProperty('--shade', Math.min(0.85, 1 - Math.cos(Math.min(Math.PI / 2, Math.abs(b) * al * Math.PI / 180)) * 0.95 + 0.05).toFixed(3)); el.classList.toggle('front', k === fi); });
+  drum.raf = requestAnimationFrame(drumFrame);
+}
+function drumGo() { const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
+drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY * 0.012; }, { passive: false });
+drumEl.addEventListener('mousedown', e => { const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
+  if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });
+addEventListener('keydown', e => { if (!drumOpen()) return; const k = e.key;
+  if (k === 'Escape') showDrum(false); else if (k === 'Enter') drumGo(); else if (k === 'ArrowDown') drum.v += 5; else if (k === 'ArrowUp') drum.v -= 5; else return;
+  e.preventDefault(); e.stopPropagation(); }, true);
 // ---------- the QUICK REFERENCE card (13:50 Chris, button B): built fresh from the live map every time it opens
 const qref = document.getElementById('qref'), qrefOpen = () => qref.classList.contains('on');
 qref.addEventListener('mousedown', e => { if (e.target === qref) showQuickRef(false); });
 function showQuickRef(on) {
   if (!on) { qref.classList.remove('on'); qref.replaceChildren(); return; }
   const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, h = (prefs.homeFace ?? 0) + 1;
-  const SHORT = { select: ['Select', 'typing goes here'], full: ['Full screen', 'on / off'], home: [`Home ⌂`, `face ${h}`], jump: ['Jump in', 'oldest waiting · else history back'],
+  const SHORT = { select: ['Select', 'typing goes here'], full: ['Full screen', 'on / off'], home: [`Home ⌂`, `face ${h}`], jump: ['Jump in', 'tap · hold = the drum'],
     back: ['History back', 'faces you were on'], forward: ['History forward', 'up the list again'], quickref: ['This card', 'press again to close'] };
   [1, 2, 3, 4].forEach(g => { SHORT['color' + g] = [colourName(prefs.palette[g - 1]).replace(/\s*\(.*\)$/, '').replace(/^./, c => c.toUpperCase()), `group ${g} · tap / hold`]; });
   const count = L ? Math.max(...Object.keys(L.labels).map(Number)) : Math.max(12, ...Object.values(B).filter(Boolean), tog);
@@ -1013,7 +1103,7 @@ function showQuickRef(on) {
   const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
   const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face']]
                     : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out']];
-  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['/', 'this card']];
+  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['/', 'this card']];
   const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
   qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
     `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
@@ -1221,13 +1311,13 @@ function shape(v, m) { const a = Math.abs(v); if (a <= m.dead) return 0; const x
 // Chris 07:45: "classical control for the cube if the user wants… as a toggle for the cube only". Every shape uses HAND; the cube alone
 // can switch back to the original one-push-one-face stepping. (The twist/tilt "analog" mode of 07:35 is kept in code, not offered.)
 const navMode = () => (SH.name === 'cube' && prefs.cubeClassic ? 'step' : 'hand');
-function handInput(pushing) {
+function handInput(pushing, forDrum) {
   // 10:54 Chris (from the Ball tab): sliding a Spaceball sideways is "a weird push-pull-lift thing… not intuitive", while tilting it is
   // natural: you grip a ball. Pucks (SpaceMouse) slide easily. So the default follows the device (LAYOUTS[pid].roll); his own choice wins.
   const f = prefs.flip || {}, tilt = (prefs.handSrc || ((devLayout() || {}).roll) || 'slide') === 'tilt';
   let ix = tilt ? -sbR[1] : sbT[0], iy = tilt ? sbR[0] : -sbT[1], tw = -sbR[2];       // screen right, screen up, clockwise twist (signs: ⚙ flips)
   if (f.x) ix = -ix; if (f.y) iy = -iy; if (f.t) tw = -tw;
-  if (pushing) { ix = 0; iy = 0; tw = 0; }                                // pushing down / pulling up = select / full screen, never a roll
+  if (pushing || (drumOpen() && !forDrum)) { ix = 0; iy = 0; tw = 0; }    // pushing down / pulling up = select / full screen, never a roll; the drum owns the ball while open
   return { ix, iy, tw };
 }
 function physics(dt, spinV, tiltV, pushing) {
@@ -1305,7 +1395,7 @@ function renderMotion() {
 function helpSections() {
   const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, k = n => `[${btnLabel(n)}]`;
   const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: `home: back to your home face (${(prefs.homeFace ?? 0) + 1}), square`,
-    jump: 'jump to the oldest face waiting for you, zoomed in', back: 'history back: the faces you were on, newest first', forward: 'history forward: up the list again',
+    jump: 'jump: tap = the oldest face waiting for you, zoomed in · hold = the waiting drum (roll the ball, push in to go)', back: 'history back: the faces you were on, newest first', forward: 'history forward: up the list again',
     color1: 'colour group 1: tap = next face · hold = paint the face in front', color2: 'colour group 2: tap = next face · hold = paint',
     color3: 'colour group 3: tap = next face · hold = paint', color4: 'colour group 4: tap = next face · hold = paint', quickref: 'the quick reference card (this map, at a glance)' };
   const count = L ? Math.max(...Object.keys(L.labels).map(Number), 0) : Math.max(...Object.values(B).filter(Boolean), tog, 6);
@@ -1327,7 +1417,7 @@ function helpSections() {
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
     ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
-    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card', 'Esc = close settings or the card']],
+    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
     ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',
