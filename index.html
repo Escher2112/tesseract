@@ -678,7 +678,7 @@ function twistStep(dt) {
   let step = tw.vel * dt; if (Math.abs(step) > Math.abs(tw.pend)) step = tw.pend; tw.pend -= step; twistBy(step);
   if (Math.abs(tw.pend) < 0.02 && Math.abs(tw.vel) < 0.5) { tw.pend = 0; tw.vel = 0; if (tw.rel) { tw.rel = false; release(0, 0); } }
 }
-const TWISTK = 1 / 3;                                                   // 09:20 Chris: Option-drag was very sensitive → a third of the pointer's sweep
+const TWISTK = 0.75;                                                    // 09:25 Chris: a third was too soft ("three spins of monkey fingers") → 75%                                                   // 09:20 Chris: Option-drag was very sensitive → a third of the pointer's sweep
 function twistBy(deg) { Q = qNorm(qMul(qAxis(0, 0, 1, deg), Q)); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false; }
 const aroundMiddle = e => Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2) * 180 / Math.PI;
 function twistQuarter(sign) { if (fullFace >= 0) return; Qt = qNorm(qMul(qAxis(0, 0, 1, 90 * sign), Qt)); cmdTarget = true; settled = false; present(Qt); }
@@ -690,9 +690,9 @@ function release(vx, vy) {                                               // let 
   const k = DRAGK * Math.PI / 180 * 1000; W = [-vy * k, vx * k, 0]; cmdTarget = false; settled = false;
 }
 scene.addEventListener('mousedown', e => {
-  if (fullFace >= 0 || (e.button !== 0 && e.button !== 1)) return; const fe = e.target.closest('.face');   // 09:22 Chris: middle button (wheel press) = twist, for the trackball
+  if (fullFace >= 0 || e.button > 2) return; const fe = e.target.closest('.face');   // left = spin · middle (wheel press) or RIGHT = twist (09:25: the trackball's right button is the steady one)
   drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false, face: fe ? faces.findIndex(f => f.el === fe) : -1, vx: 0, vy: 0,
-           twist: e.altKey || e.button === 1, ang: aroundMiddle(e) };
+           twist: e.altKey || e.button === 1 || e.button === 2, ang: aroundMiddle(e) };
   e.preventDefault(); e.stopPropagation();                               // the terminal underneath doesn't start a text selection
 }, true);
 addEventListener('mousemove', e => {
@@ -715,7 +715,7 @@ function enterFace(i) {                                                  // brin
 }
 scene.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });   // no middle-click paste / autoscroll on the solid
 scene.addEventListener('dblclick', e => { const fe = e.target.closest('.face'); if (fe) enterFace(faces.findIndex(f => f.el === fe)); });
-addEventListener('contextmenu', e => { if (fullFace >= 0 && !zooming) { e.preventDefault(); toggleFull(); } });
+addEventListener('contextmenu', e => { if (fullFace >= 0 && !zooming) { e.preventDefault(); toggleFull(); } else if (fullFace < 0 && scene.contains(e.target)) e.preventDefault(); });   // on the solid the right button twists, no menu
 function pinch(d) {                                                      // trackpad pinch (a wheel with ctrlKey): out = in to the face, in = back out
   const now = performance.now(); if (now - pinchT > 400) pinchSum = 0; pinchT = now; pinchSum += d;
   if (pinchSum < -35 && fullFace < 0) { pinchSum = 0; enterFace(frontFace()); } else if (pinchSum > 35 && fullFace >= 0) { pinchSum = 0; toggleFull(); }
@@ -723,6 +723,7 @@ function pinch(d) {                                                      // trac
 scene.addEventListener('wheel', e => {
   if (fullFace >= 0) return; e.preventDefault();
   if (e.ctrlKey) { pinch(e.deltaY); return; }
+  if (e.altKey) { tw.pend -= (e.deltaY || e.deltaX) * 0.25; clearTimeout(wheelT); wheelT = setTimeout(() => { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); }, 200); return; }   // Option + scroll = twist
   rotateBy(-e.deltaX * 0.6, -e.deltaY * 0.6); clearTimeout(wheelT); wheelT = setTimeout(() => release(0, 0), 140);
 }, { passive: false });
 full.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); pinch(e.deltaY); } }, { passive: false });
@@ -897,7 +898,8 @@ turn = roll · tap = side-to-side ⇄ top-to-bottom
 double tap = select · long press = full screen on/off
 
 MOUSE / TRACKPAD
-drag = spin it (fling = coast) · Option-drag or wheel-press drag = twist it like a dial
+drag = spin it (fling = coast) · RIGHT-drag (or Option-drag, wheel-press drag) = twist it like a dial
+Option + scroll wheel = twist
 two-finger rotate = twist · Ctrl+Option+[ ] = quarter twist
 click a face = go there
 double-click = zoom in · right-click (full screen) = back out
