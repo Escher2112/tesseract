@@ -85,6 +85,15 @@ shape has no room for are **parked** (still running), listed in ⚙, and one cli
 ⚙ → SPACE sets the room the solid floats in: **liminal** (deep grey haze, drifting dust motes, the odd sparkle; the default), **void**
 (plain black) or **classic** (the original violet glow), plus how thick the motes are. Low effects freezes it.
 
+## Motion
+With a 3D mouse, ⚙ → MOTION picks how the solid moves (saved per shape):
+- **analog + detents** (default): twist or tilt and the solid rolls freely in any direction, with weight (inertia) and friction (damping).
+  Each screen is a soft detent you push through; let go and a spring settles the nearest screen in front of you (adjustable overshoot),
+  with hysteresis so it never flickers between two. Optional soft click when a screen locks.
+- **one push = one screen**: the original stepping.
+Sliders: sensitivity, dead zone, curve (fine control near the centre), inertia, damping, snap strength, overshoot/bounce, detent while
+rolling, hysteresis. Keyboard, knob and jump moves use the same spring.
+
 ## How it's built
 - `server.py`: six pseudo-terminals (your own shell, login mode), one event stream to the page, keystrokes in by POST, and the Spaceball +
   PowerMate read with hidapi (on macOS it holds them exclusively, so they stop moving your pointer while the cube runs).
