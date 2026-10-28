@@ -690,9 +690,9 @@ function release(vx, vy) {                                               // let 
   const k = DRAGK * Math.PI / 180 * 1000; W = [-vy * k, vx * k, 0]; cmdTarget = false; settled = false;
 }
 scene.addEventListener('mousedown', e => {
-  if (fullFace >= 0 || e.button !== 0) return; const fe = e.target.closest('.face');
+  if (fullFace >= 0 || (e.button !== 0 && e.button !== 1)) return; const fe = e.target.closest('.face');   // 09:22 Chris: middle button (wheel press) = twist, for the trackball
   drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false, face: fe ? faces.findIndex(f => f.el === fe) : -1, vx: 0, vy: 0,
-           twist: e.altKey, ang: aroundMiddle(e) };
+           twist: e.altKey || e.button === 1, ang: aroundMiddle(e) };
   e.preventDefault(); e.stopPropagation();                               // the terminal underneath doesn't start a text selection
 }, true);
 addEventListener('mousemove', e => {
@@ -705,7 +705,7 @@ addEventListener('mousemove', e => {
 });
 addEventListener('mouseup', () => {
   if (!drag) return; const d = drag; drag = null;
-  if (!d.moved) { if (d.face >= 0) { select(d.face); goTo(d.face); } return; }
+  if (!d.moved) { if (d.face >= 0 && !d.twist) { select(d.face); goTo(d.face); } return; }
   if (d.twist) { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); return; }   // finish the glide, then settle into the nearest quarter
   release(performance.now() - d.t > 80 ? 0 : d.vx, performance.now() - d.t > 80 ? 0 : d.vy);   // a drag that stopped before letting go doesn't fling
 });
@@ -713,6 +713,7 @@ function enterFace(i) {                                                  // brin
   if (fullFace >= 0 || i < 0 || slotOf[i] < 0) return; select(i); goTo(i); const t0 = performance.now();
   (function wait() { if (frontFace() === i && (settled || navMode() === 'step' || performance.now() - t0 > 900)) { if (fullFace < 0) toggleFull(); } else if (performance.now() - t0 < 2000) setTimeout(wait, 40); })();
 }
+scene.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });   // no middle-click paste / autoscroll on the solid
 scene.addEventListener('dblclick', e => { const fe = e.target.closest('.face'); if (fe) enterFace(faces.findIndex(f => f.el === fe)); });
 addEventListener('contextmenu', e => { if (fullFace >= 0 && !zooming) { e.preventDefault(); toggleFull(); } });
 function pinch(d) {                                                      // trackpad pinch (a wheel with ctrlKey): out = in to the face, in = back out
@@ -896,7 +897,7 @@ turn = roll · tap = side-to-side ⇄ top-to-bottom
 double tap = select · long press = full screen on/off
 
 MOUSE / TRACKPAD
-drag = spin it (fling = coast) · Option-drag = twist it like a dial
+drag = spin it (fling = coast) · Option-drag or wheel-press drag = twist it like a dial
 two-finger rotate = twist · Ctrl+Option+[ ] = quarter twist
 click a face = go there
 double-click = zoom in · right-click (full screen) = back out
