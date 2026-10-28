@@ -207,8 +207,13 @@ function qMatrix(q) {                                                  // p' = R
   return new DOMMatrix([R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1]);
 }
 function faceAt(q, i) { return qMatrix(q).multiply(SH.slots[slotOf[i]].m); }   // bare face, ignoring its picture turn
-function frontOf(q) { let best = 0, bz = -1e9; for (const i of visible()) { const z = faceAt(q, i).m43; if (z > bz) { bz = z; best = i; } } return best; }
-const rotV = (q, v) => { const p = qMatrix(q).transformPoint(new DOMPoint(v[0], v[1], v[2], 0)); return [p.x, p.y, p.z]; };
+// 08:22 lag pass: rotV / frontOf run dozens of times a frame. They used to build a DOMMatrix every call; now plain quaternion maths
+// (v' = v + 2w(q×v) + 2 q×(q×v)), no allocation but the result. frontOf compares rotated normals' z (same order as the old m43).
+const rotV = (q, v) => { const w = q[0], x = q[1], y = q[2], z = q[3];
+  const cx = y * v[2] - z * v[1], cy = z * v[0] - x * v[2], cz = x * v[1] - y * v[0];
+  return [v[0] + 2 * (w * cx + y * cz - z * cy), v[1] + 2 * (w * cy + z * cx - x * cz), v[2] + 2 * (w * cz + x * cy - y * cx)]; };
+function frontOf(q) { let best = 0, bz = -1e9; for (const i of visible()) { const n = SH.slots[slotOf[i]].n, w = q[0], x = q[1], y = q[2], z = q[3];
+  const cx = y * n[2] - z * n[1], cy = z * n[0] - x * n[2], zz = n[2] + 2 * (w * (x * n[1] - y * n[0]) + x * cy - y * cx); if (zz > bz) { bz = zz; best = i; } } return best; }
 function frontFace() { return frontOf(Qt); }
 function upright(q) {                                                  // turn about the screen's depth axis until the front face reads upright
   const m = faceAt(q, frontOf(q)), o = m.transformPoint(new DOMPoint(0, 0, 0)), u = m.transformPoint(new DOMPoint(0, -1, 0));
@@ -453,7 +458,7 @@ function drawBg(now) {
   }
 }
 let bgPrev = 0;
-function bgLoop(now) { if (!document.hidden && now - bgPrev > 32 && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }
+function bgLoop(now) { if (!document.hidden && !document.body.classList.contains('gl') && now - bgPrev > 32 && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
 addEventListener('resize', sizeBg);
 function assignColor(g) {
   const i = cur(); if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
@@ -546,7 +551,8 @@ function renderPrefs() {
     (window.GL ? `<br><b>MATERIAL</b> <select id="p-mat">${Object.entries(window.GL.MATERIALS).map(([k, m]) => `<option value="${k}" ${(prefs.material || 'brushed_steel') === k ? 'selected' : ''}>${m.label}</option>`).join('')}</select>` +
       ` light <select id="p-light">${Object.keys(window.GL.LIGHTS).map(k => `<option ${(prefs.light || 'room') === k ? 'selected' : ''}>${k}</option>`).join('')}</select>` +
       `<br><label><input type="checkbox" id="p-bloom" ${prefs.bloom !== false ? 'checked' : ''}> glow on highlights (bloom)</label>` +
-      ` <label><input type="checkbox" id="p-gl" ${prefs.gl !== false ? 'checked' : ''}> real 3D materials (WebGL)</label>` : '') +
+      ` <label><input type="checkbox" id="p-gl" ${prefs.gl !== false ? 'checked' : ''}> real 3D materials (WebGL)</label>` +
+      `<br>quality <select id="p-quality">${window.GL.QUALITY.map(k => `<option ${(prefs.quality || 'balanced') === k ? 'selected' : ''}>${k}</option>`).join('')}</select> (fast = smoothest on a busy machine)` : '') +
     `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
     ` motes <input type="range" id="p-motes" min="0" max="2" step="0.25" value="${prefs.motes}"><br>` +
     `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
@@ -566,7 +572,7 @@ function renderPrefs() {
   el.querySelectorAll('[data-bring]').forEach(a => { a.onclick = e => { e.preventDefault(); bringHere(+a.dataset.bring); }; });
   document.getElementById('p-theme').onchange = e => { prefs.theme = e.target.value; savePrefs(); applyPrefs(); };
   const glSet = (id, k, v) => { const el2 = document.getElementById(id); if (el2) el2.onchange = e => { prefs[k] = v(e.target); savePrefs(); window.cubePrefs = prefs; window.GL && window.GL.apply(); }; };
-  glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked);
+  glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
   document.getElementById('p-motes').onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); };
   el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
