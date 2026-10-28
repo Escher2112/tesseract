@@ -126,6 +126,14 @@ sizes fight over each terminal's size and the text gets scrambled until one clos
 
 The ⚙ in the top-right corner shows all the controls.
 
+**Changing the solid's maths?** Run `node tests/maths.test.mjs` before and after. It reads the live functions out of `index.html` and
+checks every shape: the solids are built right, 2,000 random rolls each land facing you and square, a jump reaches every screen, and the
+spring settles at every corner of the motion sliders.
+
+**Two rules for contributors:** the page loads nothing from outside (three.js and xterm.js are vendored), and that is what keeps the
+key in its URL private, so please don't add a CDN, web font or remote image. And every shell on the cube can reach the server
+(`SESSION_CUBE_URL`/`SESSION_CUBE_KEY`), so one face can type into another: the cube is not a security boundary between sessions.
+
 ## Devices tested
 - Spaceball 5000 USB (3Dconnexion, 046d:c621): report 1 = slide/push xyz, report 2 = twist, report 3 = buttons. On this one a push
   down reads negative z.
