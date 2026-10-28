@@ -43,7 +43,10 @@ The ⚙ in the top-right corner shows all the controls.
 - Spaceball 5000 USB (3Dconnexion, 046d:c621): report 1 = slide/push xyz, report 2 = twist, report 3 = buttons. On this one a push
   down reads negative z.
 - Griffin PowerMate (077d:0410): turn + press; its light is driven with the vendor request the Linux powermate driver uses.
-Other 3Dconnexion devices should work with small changes to the ids in `server.py`.
+**Other 3D mice:** 3D Terminal looks for any 3Dconnexion device: the older ones with Logitech's vendor id (046d:c6xx, e.g.
+SpaceNavigator, SpacePilot, SpaceMouse Pro) and the newer ones with 3Dconnexion's own (256f, e.g. SpaceMouse Compact, Wireless,
+Enterprise), including the newer one-message report format. **Only the Spaceball 5000 has been tested on real hardware so far.**
+If yours doesn't work, or the axes or buttons are mixed up, please open an issue with the model name: a fix is usually a line or two.
 
 ## License
 MIT (see LICENSE). xterm.js is MIT too (vendor/LICENSE-xterm.txt).

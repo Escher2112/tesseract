@@ -74,7 +74,15 @@ shells = [Shell(i) for i in range(FACES)]
 # ---------- the Spaceball + PowerMate (exclusive while this runs, so macOS stops scrolling/pointing with them)
 # Button 6 (Chris 23:12): hand the Spaceball back to the Mac as an ordinary 3D mouse, and press 6 again to take it back.
 # While it's handed back we open it SHARED (macOS gets it too), ignore all movement and only watch for button 6.
-SB_IDS = (0x046d, 0xc621); sb = {"free": False, "reopen": False, "mask": 0}
+SB_IDS = "3dconnexion"; sb = {"free": False, "reopen": False, "mask": 0}
+# Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
+# (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
+# 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
+def find_3d_mouse(hid):
+    for d in hid.enumerate():
+        v, p = d["vendor_id"], d["product_id"]
+        if v == 0x256f or (v == 0x046d and 0xc600 <= p <= 0xc6ff): sb["vendor"] = v; return d["path"]
+    return None
 def set_exclusive(on):                                                  # macOS only: hidapi's switch between grabbing and sharing
     try:
         import ctypes, hid
@@ -85,8 +93,12 @@ def device_loop(ids, parse):
     except ImportError: print("no hidapi: pip install hidapi to use a Spaceball / PowerMate (keyboard and mouse still work)", flush=True); return
     while True:
         try:
-            if ids == SB_IDS: set_exclusive(not sb["free"])
-            h = hid.device(); h.open(*ids); h.set_nonblocking(1)
+            if ids == SB_IDS:
+                path = find_3d_mouse(hid)
+                if path is None: raise OSError("no 3D mouse plugged in")
+                set_exclusive(not sb["free"]); h = hid.device(); h.open_path(path)
+            else: h = hid.device(); h.open(*ids)
+            h.set_nonblocking(1)
             if ids == SB_IDS: set_exclusive(True); sb["reopen"] = False
             while not (ids == SB_IDS and sb["reopen"]):
                 r = h.read(16, 250)                                    # blocks up to 250 ms: ~0 CPU while the ball sits still
@@ -103,6 +115,9 @@ def parse_sb(r):
             sb["free"] = not sb["free"]; sb["reopen"] = True
             send({"k": "sbfree", "free": sb["free"]}); return
     if sb["free"]: return                                              # handed back to the Mac: the cube ignores it
+    if sb.get("vendor") == 0x256f and r[0] == 1 and len(r) >= 13:      # newer (0x256f) models: push AND twist in one 12-byte report
+        v = struct.unpack("<6h", bytes(r[1:13]))
+        send({"k": "sb", "a": "t", "v": list(v[:3])}); send({"k": "sb", "a": "r", "v": list(v[3:])}); return
     if r[0] in (1, 2) and len(r) >= 7: send({"k": "sb", "a": "t" if r[0] == 1 else "r", "v": list(struct.unpack("<3h", bytes(r[1:7])))})
     elif r[0] == 3 and len(r) >= 3: send({"k": "sbb", "m": r[1] | (r[2] << 8)})
 def parse_knob(r): send({"k": "knob", "t": r[1] - 256 if r[1] > 127 else r[1], "b": r[0]})
@@ -159,7 +174,7 @@ def stop(*_):
             except ProcessLookupError: pass
     sys.exit(0)
 signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
-threading.Thread(target=device_loop, args=((0x046d, 0xc621), parse_sb), daemon=True).start()
+threading.Thread(target=device_loop, args=(SB_IDS, parse_sb), daemon=True).start()
 threading.Thread(target=device_loop, args=((0x077d, 0x0410), parse_knob), daemon=True).start()
 try: httpd = ThreadingHTTPServer(("127.0.0.1", PORT), H)
 except OSError:                                                      # port busy (an old copy still running?): take any free one
