@@ -55,7 +55,7 @@ export const LIGHTS = {
 const QUALITY = { high: { dpr: 2, msaa: 4, bloom: true }, balanced: { dpr: 1.5, msaa: 4, bloom: true }, fast: { dpr: 1, msaa: 0, bloom: false } };
 
 let renderer, scene, camera, composer, rt, bloom, body, mesh, envRT, keyL, fillL, rimL, amb, polys = null;
-let builtFor = null, matKey = null, lightKey = null, qualKey = null, themeKey = null, moteN = -1, motes = null, sparkle = null, backdrop = null;
+let builtFor = null, matKey = null, lightKey = null, qualKey = null, themeKey = null, moteN = -1, motes = null, sparkle = null, backdrop = null, rain = null;
 let last = 0, lastQ = '', dirty = true;
 const prefs = () => window.cubePrefs || {};                            // the page hands these over every frame (its let-variables aren't window properties)
 const hex = h => { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
@@ -148,9 +148,14 @@ function spriteTex(star) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 function buildSpace() {
-  const p = prefs(), theme = p.theme || 'liminal', n = theme === 'liminal' ? Math.round(140 * (p.motes ?? 1)) : 0;
-  if (theme === themeKey && n === moteN) return; themeKey = theme; moteN = n;
-  if (backdrop) backdrop.dispose(); if (motes) { scene.remove(motes); motes.geometry.dispose(); motes = null; } if (sparkle) { scene.remove(sparkle); sparkle = null; }
+  const p = prefs(), theme = p.theme || 'liminal', n = theme === 'liminal' ? Math.round(140 * (p.motes ?? 1)) : 0, tk = theme + '|' + (p.matrixPalette || '') + '|' + (p.motes ?? 1);
+  if (tk === themeKey && n === moteN) return; themeKey = tk; moteN = n; rain = null;
+  if (backdrop) backdrop.dispose();
+  if (theme === 'matrix' && window.MatrixRain) {                        // Alcove's rain, drawn at 1 CSS px per pixel, copied to the GPU only when it steps (~17×/s)
+    const c = document.createElement('canvas'); c.width = innerWidth; c.height = innerHeight;
+    rain = new window.MatrixRain(c.getContext('2d'), c.width, c.height, p.motes || 1); backdrop = new THREE.CanvasTexture(c); backdrop.colorSpace = THREE.SRGBColorSpace;
+    scene.background = backdrop; if (motes) { scene.remove(motes); motes.geometry.dispose(); motes = null; } if (sparkle) { scene.remove(sparkle); sparkle = null; } return;
+  } if (motes) { scene.remove(motes); motes.geometry.dispose(); motes = null; } if (sparkle) { scene.remove(sparkle); sparkle = null; }
   const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d'), g = x.createRadialGradient(256, 230, 0, 256, 256, 380);
   if (theme === 'void') { x.fillStyle = '#000'; x.fillRect(0, 0, 512, 512); }
   else { (theme === 'classic' ? [[0, '#15112a'], [0.7, '#07060d'], [1, '#07060d']] : [[0, '#1d1d22'], [0.45, '#101013'], [1, '#030304']]).forEach(([o, cl]) => g.addColorStop(o, cl));
@@ -166,6 +171,7 @@ function buildSpace() {
   sparkle.scale.set(70, 70, 1); sparkle.userData = { life: 0 }; scene.add(sparkle);
 }
 function driftSpace(dt) {
+  if (rain) { if (!prefs().lowfx && rain.step(dt * 1000)) backdrop.needsUpdate = true; return; }
   if (!motes || prefs().lowfx) return; const a = motes.geometry.attributes.position.array, { W, H, ph } = motes.userData;
   for (let i = 0; i < ph.length; i++) { ph[i] += dt * 0.4; a[i * 3 + 1] += dt * 14; a[i * 3] += Math.sin(ph[i]) * dt * 4;
     if (a[i * 3 + 1] > H / 2) { a[i * 3 + 1] = -H / 2; a[i * 3] = (Math.random() - 0.5) * W; } }
@@ -257,7 +263,7 @@ function loop(now) {
   if (prefs().gl === false || document.hidden || !window.cubeSH) return;
   if (builtFor !== window.cubeSH) { buildBody(); dirty = true; }
   const q = window.cubeShown || [1, 0, 0, 0], qs = q.map(v => v.toFixed(5)).join(), moving = qs !== lastQ;
-  if (!moving && !dirty && now - last < 33) return;                      // nothing turning: 30 fps is plenty for drifting motes
+  if (!moving && !dirty && now - last < (rain ? 50 : 33)) return;         // nothing turning: 30 fps for motes, 20 for the rain (it steps every 58 ms)                      // nothing turning: 30 fps is plenty for drifting motes
   const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now; lastQ = qs; dirty = false;
   body.quaternion.set(-q[1], q[2], -q[3], q[0]); body.position.set(0, 0, -window.cubeSH.r);   // page rotation (y down) → GL (y up)
   driftSpace(dt); composer.render();

@@ -429,17 +429,48 @@ function lightEl(el, q, n, u) {
 }
 function light(q) { if (prefs.lowfx) return; visible().forEach(i => { const sl = SH.slots[slotOf[i]]; lightEl(faces[i].el, q, sl.n, sl.u); });
   triEls.forEach(el => lightEl(el, q, el.t.n, el.t.u)); }
+// ---------- MATRIX RAIN (Chris 08:31: "we geeks love the matrix code — it's in Alcove and every app I have… we need it as another
+// background"). Ported AS IS from Alcove (app/index.html, BG.drawMatrix, 2026-10-28): the same glyphs, columns, bright head, 0.11 fade
+// trails, 58 ms step and Alcove's ten palettes. One class, used by both the plain look (the 2D canvas) and gl.js (as the scene's backdrop).
+const MATRIX_PALETTES = [
+  { id: "cyber", name: "Cyber", bg: "#020705", main: "#00ff9c", head: "#d8ffec" }, { id: "gothic", name: "Gothic", bg: "#070205", main: "#c4163a", head: "#ffd1dc" },
+  { id: "nebula", name: "Nebula", bg: "#07030c", main: "#ff4fd8", head: "#ffe0fb" }, { id: "purple", name: "Purple", bg: "#06030d", main: "#9d6bff", head: "#eadcff" },
+  { id: "blues", name: "Blues", bg: "#020610", main: "#3fb8ff", head: "#d9f2ff" }, { id: "cobalt", name: "Cobalt", bg: "#01030f", main: "#2f6bff", head: "#d6e2ff" },
+  { id: "amber", name: "Amber", bg: "#0a0600", main: "#ffb000", head: "#fff0cc" }, { id: "ice", name: "Ice", bg: "#02080b", main: "#7fe7ff", head: "#ffffff" },
+  { id: "toxic", name: "Toxic", bg: "#040800", main: "#b6ff00", head: "#f3ffcc" }, { id: "synthwave", name: "Synthwave", bg: "#0b0213", main: "#ff6ec7", head: "#fff0fa" }];
+class MatrixRain {
+  constructor(ctx, w, h, density = 1) { this.c = ctx; this.w = w; this.h = h; this.fs = 16; this.colW = Math.max(9, 20 / density); this.acc = 0;
+    const cols = Math.ceil(w / this.colW); this.drops = Array.from({ length: cols }, () => -Math.random() * (h / this.fs)); this.speeds = Array.from({ length: cols }, () => 0.55 + Math.random() * 0.9);
+    const p = this.pal(); ctx.fillStyle = p.bg; ctx.fillRect(0, 0, w, h); }
+  pal() { return MATRIX_PALETTES.find(p => p.id === prefs.matrixPalette) || MATRIX_PALETTES[0]; }
+  step(dt) {                                                             // true when it drew (so a GPU copy knows to refresh)
+    this.acc += dt; let steps = 0; while (this.acc >= 58 && steps < 3) { this.acc -= 58; steps++; } if (!steps) return false;
+    const p = this.pal(), c = this.c, fs = this.fs, CH = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ=+*<>:|";
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(p.bg.slice(i, i + 2), 16));
+    for (let s = 0; s < steps; s++) {
+      c.fillStyle = `rgba(${r},${g},${b},0.11)`; c.fillRect(0, 0, this.w, this.h); c.font = `${fs}px "MS Gothic", Consolas, monospace`; c.textBaseline = "top";
+      for (let i = 0; i < this.drops.length; i++) { const y = Math.floor(this.drops[i]) * fs, x = i * this.colW;
+        if (y >= 0) { c.fillStyle = p.main; c.fillText(CH[(Math.random() * CH.length) | 0], x, y - fs); c.fillStyle = p.head; c.fillText(CH[(Math.random() * CH.length) | 0], x, y); }
+        this.drops[i] += this.speeds[i]; if (y > this.h && Math.random() > 0.972) { this.drops[i] = -Math.random() * 12; this.speeds[i] = 0.55 + Math.random() * 0.9; } }
+    }
+    return true;
+  }
+}
+window.MatrixRain = MatrixRain; window.MATRIX_PALETTES = MATRIX_PALETTES;
+let rain2d = null;
+
 // ---------- the space the solid lives in (Chris: "aetherial… a liminal space… dust motes and sparklies… over a super deep grey
 // gradient… maybe just black… adjustable like a theme"). Themes: liminal (deep grey haze, drifting motes, rare sparkles) · void
 // (black, nothing) · classic (the original violet glow). Motes: 0 = off … 2 = thick. Low effects freezes it.
 const bg = document.getElementById('bg'), bgc = bg.getContext('2d'); let motes = [], bgLast = 0;
 function sizeBg() { const d = Math.min(2, devicePixelRatio || 1); bg.width = innerWidth * d; bg.height = innerHeight * d; bgc.setTransform(d, 0, 0, d, 0, 0); seedMotes(); }
-function seedMotes() { const n = Math.round(140 * (prefs.theme === 'liminal' ? prefs.motes : 0));
+function seedMotes() { rain2d = null; const n = Math.round(140 * (prefs.theme === 'liminal' ? prefs.motes : 0));
   motes = Array.from({ length: n }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, z: 0.3 + Math.random() * 0.7,
     r: 0.4 + Math.random() * 1.6, a: 0.08 + Math.random() * 0.35, ph: Math.random() * 6.28, sp: 0 })); }
 function drawBg(now) {
   const W = innerWidth, H = innerHeight, t = prefs.theme;
   if (t === 'void') { bgc.fillStyle = '#000'; bgc.fillRect(0, 0, W, H); return; }
+  if (t === 'matrix') { if (!rain2d) rain2d = new MatrixRain(bgc, W, H, prefs.motes || 1); rain2d.step(Math.min(64, now - bgLast)); bgLast = now; return; }
   const g = bgc.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.max(W, H) * 0.75);
   if (t === 'classic') { g.addColorStop(0, '#15112a'); g.addColorStop(0.7, '#07060d'); g.addColorStop(1, '#07060d'); }
   else { g.addColorStop(0, '#1d1d22'); g.addColorStop(0.45, '#101013'); g.addColorStop(1, '#030304'); }
@@ -553,8 +584,9 @@ function renderPrefs() {
       `<br><label><input type="checkbox" id="p-bloom" ${prefs.bloom !== false ? 'checked' : ''}> glow on highlights (bloom)</label>` +
       ` <label><input type="checkbox" id="p-gl" ${prefs.gl !== false ? 'checked' : ''}> real 3D materials (WebGL)</label>` +
       `<br>quality <select id="p-quality">${window.GL.QUALITY.map(k => `<option ${(prefs.quality || 'balanced') === k ? 'selected' : ''}>${k}</option>`).join('')}</select> (fast = smoothest on a busy machine)` : '') +
-    `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
-    ` motes <input type="range" id="p-motes" min="0" max="2" step="0.25" value="${prefs.motes}"><br>` +
+    `<br><b>SPACE</b> <select id="p-theme">${['liminal', 'matrix', 'void', 'classic'].map(t => `<option ${prefs.theme === t ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
+    ` ${prefs.theme === 'matrix' ? 'density' : 'motes'} <input type="range" id="p-motes" min="0.25" max="2" step="0.25" value="${prefs.motes}">` +
+    (prefs.theme === 'matrix' ? ` <select id="p-mpal">${MATRIX_PALETTES.map(p => `<option value="${p.id}" ${(prefs.matrixPalette || 'cyber') === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}</select>` : '') + `<br>` +
     `<b>COLOURS</b> (tap = colour this face · double tap = next face of it · hold = show only it)<br>` +
     [1, 2, 3, 4].map(g => `<span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span> ${g}: <b>${colourName(prefs.palette[g - 1])}</b> · ball button <b>${B['color' + g]}</b> ${learn('color' + g)} · Ctrl+Option+${keys[g - 1]}`).join('<br>') +
     `<br>colour this face: ${[1, 2, 3, 4].map(g => `<button data-assign="${g}">${g}</button>`).join('')}` +
@@ -574,6 +606,7 @@ function renderPrefs() {
   const glSet = (id, k, v) => { const el2 = document.getElementById(id); if (el2) el2.onchange = e => { prefs[k] = v(e.target); savePrefs(); window.cubePrefs = prefs; window.GL && window.GL.apply(); }; };
   glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
   document.getElementById('p-motes').onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); };
+  const mp = document.getElementById('p-mpal'); if (mp) mp.onchange = e => { prefs.matrixPalette = e.target.value; savePrefs(); applyPrefs(); };
   el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
   document.getElementById('p-glow').oninput = e => { prefs.glow = +e.target.value; document.documentElement.style.setProperty('--glow', prefs.glow); };
