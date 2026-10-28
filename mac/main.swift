@@ -30,15 +30,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let venv = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/3D Terminal/venv/bin/python3").path
         let p = Process()
+        let me = String(ProcessInfo.processInfo.processIdentifier)   // the server stops itself if this app ever dies
         let script = core.appendingPathComponent("server.py").path
         if FileManager.default.isExecutableFile(atPath: venv) {
-            p.executableURL = URL(fileURLWithPath: venv); p.arguments = ["-I", script, "--port", "8782"]
+            p.executableURL = URL(fileURLWithPath: venv); p.arguments = ["-I", script, "--port", "8782", "--parent", me]
         } else {
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/env"); p.arguments = ["python3", "-I", script, "--port", "8782"]
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env"); p.arguments = ["python3", "-I", script, "--port", "8782", "--parent", me]
         }
         let out = Pipe(); p.standardOutput = out
         do { try p.run() } catch { showError("Couldn't start the cube's server: \(error)"); return }
         server = p
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) {       // still nothing after 15 s: tell the user instead of a black window
+            if self.web.url == nil {
+                self.showError("3D Terminal's helper didn't start.<br><br>It needs Python 3 (the Xcode command-line tools include it).<br>Quit and reopen to try again.")
+            }
+        }
+        p.terminationHandler = { proc in                             // the helper died while the app is open
+            DispatchQueue.main.async { if proc.terminationReason != .exit || proc.terminationStatus != 0 { self.showError("3D Terminal's helper stopped unexpectedly. Quit and reopen to restart it.") } }
+        }
         DispatchQueue.global().async {                      // wait for the line with the URL (it carries a per-run key)
             let h = out.fileHandleForReading; var seen = ""
             while true {

@@ -56,8 +56,11 @@ class Shell:
         except ChildProcessError: pass
         self.fd = None; send({"f": self.face, "exit": True})
     def write(self, data):
-        if not self.alive(): self.start()
-        os.write(self.fd, data)
+        for _ in range(2):
+            try:
+                if not self.alive(): self.start()
+                os.write(self.fd, data); return
+            except OSError: self.fd = None                          # it died between the check and the write: start a fresh one
     def resize(self, rows, cols):
         self.size = (rows, cols)
         if self.alive():
@@ -69,21 +72,37 @@ class Shell:
 shells = [Shell(i) for i in range(FACES)]
 
 # ---------- the Spaceball + PowerMate (exclusive while this runs, so macOS stops scrolling/pointing with them)
+# Button 6 (Chris 23:12): hand the Spaceball back to the Mac as an ordinary 3D mouse, and press 6 again to take it back.
+# While it's handed back we open it SHARED (macOS gets it too), ignore all movement and only watch for button 6.
+SB_IDS = (0x046d, 0xc621); sb = {"free": False, "reopen": False, "mask": 0}
+def set_exclusive(on):                                                  # macOS only: hidapi's switch between grabbing and sharing
+    try:
+        import ctypes, hid
+        ctypes.CDLL(hid.__file__).hid_darwin_set_open_exclusive(1 if on else 0)
+    except Exception: pass
 def device_loop(ids, parse):
     try: import hid
     except ImportError: print("no hidapi: pip install hidapi to use a Spaceball / PowerMate (keyboard and mouse still work)", flush=True); return
     while True:
         try:
+            if ids == SB_IDS: set_exclusive(not sb["free"])
             h = hid.device(); h.open(*ids); h.set_nonblocking(1)
-            while True:
-                r = h.read(16)
+            if ids == SB_IDS: set_exclusive(True); sb["reopen"] = False
+            while not (ids == SB_IDS and sb["reopen"]):
+                r = h.read(16, 250)                                    # blocks up to 250 ms: ~0 CPU while the ball sits still
                 if r: parse(r)
-                else: time.sleep(0.003)
+            h.close()                                                  # button 6 flipped the mode: reopen grabbed or shared
         except (OSError, IOError):
             try: h.close()
             except Exception: pass
             time.sleep(1.0)
 def parse_sb(r):
+    if r[0] == 3 and len(r) >= 3:
+        m = r[1] | (r[2] << 8); pressed = m & ~sb["mask"]; sb["mask"] = m
+        if pressed & 0x20:                                             # button 6
+            sb["free"] = not sb["free"]; sb["reopen"] = True
+            send({"k": "sbfree", "free": sb["free"]}); return
+    if sb["free"]: return                                              # handed back to the Mac: the cube ignores it
     if r[0] in (1, 2) and len(r) >= 7: send({"k": "sb", "a": "t" if r[0] == 1 else "r", "v": list(struct.unpack("<3h", bytes(r[1:7])))})
     elif r[0] == 3 and len(r) >= 3: send({"k": "sbb", "m": r[1] | (r[2] << 8)})
 def parse_knob(r): send({"k": "knob", "t": r[1] - 256 if r[1] > 127 else r[1], "b": r[0]})
@@ -142,5 +161,18 @@ def stop(*_):
 signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
 threading.Thread(target=device_loop, args=((0x046d, 0xc621), parse_sb), daemon=True).start()
 threading.Thread(target=device_loop, args=((0x077d, 0x0410), parse_knob), daemon=True).start()
+try: httpd = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+except OSError:                                                      # port busy (an old copy still running?): take any free one
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), H); PORT = httpd.server_address[1]
+    HOSTS.clear(); HOSTS.update({f"127.0.0.1:{PORT}", f"localhost:{PORT}"})
+# 2) never outlive whoever started us: with --parent PID, stop as soon as that process is gone (app crashed or was force-quit)
+if "--parent" in sys.argv:
+    PARENT = int(sys.argv[sys.argv.index("--parent") + 1])
+    def watch_parent():
+        while True:
+            time.sleep(1.0)
+            try: os.kill(PARENT, 0)
+            except ProcessLookupError: os.kill(os.getpid(), signal.SIGTERM); return
+    threading.Thread(target=watch_parent, daemon=True).start()
 print(f"Session Cube: http://127.0.0.1:{PORT}/?k={KEY}", flush=True)
-ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
+httpd.serve_forever()

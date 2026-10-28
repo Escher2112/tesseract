@@ -75,6 +75,7 @@ es.onmessage = e => {
   if (m.f !== undefined) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) f.term.write(m.o); if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
   else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
   else if (m.k === 'sbb') sbButtons(m.m);
+  else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? 'Spaceball → your Mac (press 6 to take it back)' : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
 };
 es.onopen = () => faces.forEach(refit);
@@ -215,6 +216,7 @@ const HELP = `SPACEBALL
 twist = roll side to side · tilt = roll over the top
 push down = select the face · push again = full screen
 pull up = back to the cube · button 3 = home
+button 6 = hand the ball to your Mac / take it back
 
 POWERMATE KNOB
 turn = roll · tap = side-to-side ⇄ top-to-bottom

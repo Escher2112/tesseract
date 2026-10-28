@@ -12,6 +12,7 @@ session title), but every face is just a normal shell.
 - One clean quarter-roll per push, in the direction you pushed. Endless in every direction.
 - The face that rolls in always arrives **right side up** (the geometry cheats on purpose: it's built for working, not for physics).
 - Push down = select the face (your typing goes there) · push again = full screen · pull up = back to the cube.
+- Button 6 = hand the Spaceball back to your Mac as an ordinary 3D mouse; press 6 again to take it back.
 - PowerMate: turn = roll · tap = switch side-to-side / top-to-bottom · double tap = select · long press = full screen on/off.
 - Keyboard: Ctrl+Option + arrows to roll, Ctrl+Option+Return for full screen, Ctrl+Option+1…6 to jump to a face. Click a face to pick it.
 
@@ -32,7 +33,8 @@ give your user read/write on `/dev/hidraw*` with a udev rule. The Linux path is 
 - `mac/`: a small Swift app that starts the server and shows the cube in a native window.
 - `linux/`: a launcher script. A native Linux window (GTK + WebKitGTK, or anything that can show a web page) would be a great PR.
 
-Stopping the server (or quitting the app) ends every shell on the cube. Open the cube in ONE window at a time: two windows of different
+Stopping the server (or quitting the app) ends every shell on the cube. The helper never outlives the app (it stops itself if the app
+crashes), falls back to a free port if its usual one is busy, and uses ~0% CPU while idle. Open the cube in ONE window at a time: two windows of different
 sizes fight over each terminal's size and the text gets scrambled until one closes.
 
 The ⚙ in the top-right corner shows all the controls.
