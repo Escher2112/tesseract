@@ -12,7 +12,8 @@ session title), but every face is just a normal shell.
 - One clean quarter-roll per push, in the direction you pushed. Endless in every direction.
 - The face that rolls in always arrives **right side up** (the geometry cheats on purpose: it's built for working, not for physics).
 - Push down = select the face (your typing goes there) · push again = full screen · pull up = back to the cube.
-- Button 6 = hand the Spaceball back to your Mac as an ordinary 3D mouse; press 6 again to take it back.
+- Button 6 = hand the 3D mouse back to your Mac as an ordinary 3D mouse; press it again to take it back. Fewer buttons on yours?
+  Open the ⚙ panel, click "change" and press the button you want (saved in ~/.config/3d-terminal/config.json).
 - PowerMate: turn = roll · tap = switch side-to-side / top-to-bottom · double tap = select · long press = full screen on/off.
 - Keyboard: Ctrl+Option + arrows to roll, Ctrl+Option+Return for full screen, Ctrl+Option+1…6 to jump to a face. Click a face to pick it.
 

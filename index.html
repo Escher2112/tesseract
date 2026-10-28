@@ -24,15 +24,16 @@
   #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
   #gear:hover { opacity: 1; }
   #help { position: fixed; top: 32px; right: 10px; z-index: 7; display: none; max-width: 420px; padding: 12px 14px; line-height: 1.6;
-          background: rgba(20, 16, 40, .96); border: 1px solid var(--edge); border-radius: 8px; color: #d8d0ff; white-space: pre-line; }
+          background: rgba(20, 16, 40, .96); border: 1px solid var(--edge); border-radius: 8px; color: #d8d0ff; }
   #help.on { display: block; }
+  #helptext { white-space: pre-line; }  #setting { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--edge); }
   #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 7; padding: 4px 12px; border-radius: 6px;
            background: rgba(20, 16, 40, .9); color: #d8d0ff; display: none; }
 </style></head>
 <body>
 <div id="scene"><div id="cube"></div></div>
 <div id="full"><div class="hdr" id="fullhdr"></div></div>
-<div id="gear" title="How to drive it">⚙</div><div id="help"></div><div id="toast"></div>
+<div id="gear" title="How to drive it">⚙</div><div id="help"><div id="helptext"></div><div id="setting">hand-back button: <b id="tog">6</b> &nbsp;<a href="#" id="learn" style="color:#c9b8ff">change</a></div></div><div id="toast"></div>
 <script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script>
 <script>
 'use strict';
@@ -75,7 +76,8 @@ es.onmessage = e => {
   if (m.f !== undefined) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) f.term.write(m.o); if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
   else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
   else if (m.k === 'sbb') sbButtons(m.m);
-  else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? 'Spaceball → your Mac (press 6 to take it back)' : 'Spaceball → the cube'); }
+  else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); }
+  else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
 };
 es.onopen = () => faces.forEach(refit);
@@ -216,7 +218,7 @@ const HELP = `SPACEBALL
 twist = roll side to side · tilt = roll over the top
 push down = select the face · push again = full screen
 pull up = back to the cube · button 3 = home
-button 6 = hand the ball to your Mac / take it back
+hand-back button (6, or yours) = ball to your Mac / take it back
 
 POWERMATE KNOB
 turn = roll · tap = side-to-side ⇄ top-to-bottom
@@ -225,7 +227,8 @@ double tap = select · long press = full screen on/off
 KEYBOARD (Ctrl+Option)
 arrows = roll · Return = full screen · 1-6 = jump to a face
 click a face to select it`;
-help.textContent = HELP;
+document.getElementById('helptext').textContent = HELP;
+document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
 document.getElementById('gear').onclick = () => help.classList.toggle('on');
 faces.forEach(label);                                                  // after fullFace exists (label reads it)
 // 22:58 Chris: the top of Claude's little mascot was clipped on the cube. The terminals kept an old row count after the title bar grew

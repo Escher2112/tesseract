@@ -74,7 +74,16 @@ shells = [Shell(i) for i in range(FACES)]
 # ---------- the Spaceball + PowerMate (exclusive while this runs, so macOS stops scrolling/pointing with them)
 # Button 6 (Chris 23:12): hand the Spaceball back to the Mac as an ordinary 3D mouse, and press 6 again to take it back.
 # While it's handed back we open it SHARED (macOS gets it too), ignore all movement and only watch for button 6.
-SB_IDS = "3dconnexion"; sb = {"free": False, "reopen": False, "mask": 0}
+SB_IDS = "3dconnexion"; sb = {"free": False, "reopen": False, "mask": 0, "learn": False}
+# Which button hands the ball back to the Mac is a setting (23:23, Chris: smaller 3D mice have only 2 buttons). Default: button 6.
+# Kept per computer in ~/.config/3d-terminal/config.json; set from the page's ⚙ panel by pressing the button you want.
+CONFIG = os.path.expanduser("~/.config/3d-terminal/config.json")
+def load_config():
+    try: return json.load(open(CONFIG))
+    except Exception: return {}
+def save_config(c):
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
+sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
 # 0x256f (SpaceMouse Compact c635, Wireless c62e/c62f, Enterprise c633…). Only the Spaceball 5000 has been tried on real hardware.
@@ -111,9 +120,14 @@ def device_loop(ids, parse):
 def parse_sb(r):
     if r[0] == 3 and len(r) >= 3:
         m = r[1] | (r[2] << 8); pressed = m & ~sb["mask"]; sb["mask"] = m
-        if pressed & 0x20:                                             # button 6
+        if pressed and sb["learn"]:                                   # ⚙ "change": the next button pressed becomes the hand-back button
+            b = (pressed & -pressed).bit_length(); sb["toggle"] = b; sb["learn"] = False
+            c = load_config(); c["toggle_button"] = b; save_config(c); send({"k": "config", "toggle": b, "learned": True}); return
+        tbit = 1 << (sb["toggle"] - 1)
+        if pressed & tbit:
             sb["free"] = not sb["free"]; sb["reopen"] = True
             send({"k": "sbfree", "free": sb["free"]}); return
+        r = [r[0], (m & ~tbit) & 0xff, ((m & ~tbit) >> 8) & 0xff]       # the cube never sees the hand-back button
     if sb["free"]: return                                              # handed back to the Mac: the cube ignores it
     if sb.get("vendor") == 0x256f and r[0] == 1 and len(r) >= 13:      # newer (0x256f) models: push AND twist in one 12-byte report
         v = struct.unpack("<6h", bytes(r[1:13]))
@@ -144,6 +158,7 @@ class H(BaseHTTPRequestHandler):
         for s in shells:
             if not s.alive(): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
+        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"]}))
         with listeners_lock: listeners.append(mine)
         try:
             while True:
@@ -156,6 +171,9 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path); q = parse_qs(u.query)
         if not self.guard(q): return self.deny()
+        if u.path == "/config":                                       # ⚙: ?learn=1 = the next button pressed becomes the hand-back button
+            if q.get("learn", ["0"])[0] == "1": sb["learn"] = True
+            self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
         except ValueError: s = None
         if s is None: return self.deny(400)
