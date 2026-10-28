@@ -43,6 +43,10 @@
            display: none; z-index: 4; box-shadow: 0 0 8px rgb(0 0 0 / .8); }
   .glyph::after { content: '!'; position: absolute; inset: 0; transform: rotate(-45deg); color: #000; font: 700 calc(13px / var(--k, 1)) Menlo, monospace; display: flex; align-items: center; justify-content: center; }
   .face.attn .glyph { display: block; }
+  /* 10:45 Chris: "the title bars in fullscreen are VERY large, need like half the thickness". The overview rule (bigger plates on the
+     small 18-face screens) was also catching the full-screen bar. Full screen gets its own slim bar in every shape. */
+  #fullhdr.hdr, body.overview #fullhdr.hdr { font-size: 12px; font-weight: 600; padding: 3px 10px; line-height: 16px; }
+  #fullhdr .wbar input { padding: 1px 6px; font-size: 12px; } #fullhdr .wbar button { padding: 0 6px; font-size: 12px; line-height: 16px; }
   .face:not(.offered) .inner::before { content: ''; position: absolute; inset: 0; background: rgb(0 0 0 / calc(.32 * var(--offer, 0))); pointer-events: none; z-index: 5; }  .face.attn .hdr { padding-right: calc(36px / var(--k, 1)); }
   .hdr .st { margin-left: 12px; color: #fff; }  body.overview .hdr .st { display: none; }   /* small plates: the title wins; the ◆! glyph + the list carry the status */
   /* overview (any shape but the cube): a readable title plate, the terminal itself dimmed on faces you're not looking at */
@@ -52,7 +56,7 @@
   .host { flex: 1; padding: 4px; min-height: 0; }
   .host .xterm { height: 100%; }
   #full { position: fixed; inset: 0; background: var(--face); display: none; flex-direction: column; z-index: 5; transform-origin: 0 0; }
-  #fullsnap { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; width: 100%; height: calc(100% - 30px); object-fit: cover; object-position: top; display: none; z-index: 1; background: #fff; }
+  #fullsnap { position: absolute; left: 0; right: 0; top: 22px; bottom: 0; width: 100%; height: calc(100% - 30px); object-fit: cover; object-position: top; display: none; z-index: 1; background: #fff; }
   #full.on { display: flex; }
   /* 23:03 Chris: the help line overlapped Claude Code's bottom bar in full screen. Now it's a ⚙ in the top-right corner that opens a panel. */
   #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
@@ -249,7 +253,8 @@ const es = new EventSource(`/stream?k=${encodeURIComponent(KEY)}`);
 es.onmessage = e => {
   const m = JSON.parse(e.data);
   if (m.f !== undefined && !m.k) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) { f.term.write(m.o); f.seen = true; } if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
-  else if (m.k === 'sb') { (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v); sbAt = performance.now(); }
+  else if (m.k === 'sb') { sbRaw[m.a] = m.v.slice(); sbRaw.at = performance.now(); sbRaw.n++; const b = (prefs.sbBias || {})[m.a] || [0, 0, 0];
+    (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v.map((v, i) => v - b[i])); sbAt = performance.now(); calFeed(); }
   else if (m.k === 'sbb') sbButtons(m.m);
   else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
   else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; if (DEVICE) prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs(); toast(`you pressed button #${m.b} (${btnLabel(m.b)}): ${(BUTTON_ACTIONS.find(a => a[0] === m.target) || [, m.target])[1]} is on it now`); }
@@ -884,7 +889,7 @@ const tgl = (id, title, hint, on, attr = '') => `<label class="toggle"><span>${t
 const rng = (attrs, label, val, shown) => fld(label, `<div class="range"><input type="range" ${attrs} value="${val}"><output>${shown ?? val}</output></div>`);
 const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
 const seg = (name, opts, cur) => `<div class="seg">${opts.map(([v, t, sub]) => `<label><input type="radio" name="${name}" value="${v}" ${cur === v ? 'checked' : ''}><span>${t}${sub ? `<small>${sub}</small>` : ''}</span></label>`).join('')}</div>`;
-const TABS = [['look', 'Look'], ['motion', 'Motion'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['keys', 'Keys']];
+const TABS = [['look', 'Look'], ['motion', 'Motion'], ['ball', 'Ball'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['keys', 'Keys']];
 let prefsTab = 'look';
 function showTab(t) { prefsTab = t; document.querySelectorAll('#dnav .dtab').forEach(x => x.classList.toggle('on', x.dataset.t === t)); document.querySelectorAll('#prefs .sec').forEach(x => x.classList.toggle('on', x.dataset.sec === t)); }
 
@@ -924,6 +929,13 @@ function renderPrefs() {
       rng('id="p-motes" min="0.25" max="2" step="0.25"', prefs.theme === 'matrix' ? 'Rain density' : 'Motes', prefs.motes ?? 1) +
       tgl('p-lowfx', 'Low effects', 'No animation, no glow: the quietest look.', prefs.lowfx)) +
     sec('motion', `<div id="motion"></div>`) +
+    sec('ball', `<div class="note">Calibration: see exactly what your ball reports. The gyro ball tilts and twists with your hand, the dot follows your pushes
+      (lift = bigger, press = smaller). Hands off, everything should sit in the middle, inside the dead-zone ring.</div>` +
+      `<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap"><canvas id="calcv" width="300" height="300" style="width:300px;height:300px;border-radius:18px;background:#07060f;border:1px solid var(--line)"></canvas>` +
+      `<div style="flex:1;min-width:260px" id="calbars"></div></div>` +
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn acc" id="cal-rest">Measure rest (hands off 3 s)</button>` +
+      `<button class="btn" id="cal-zero" ${calRest ? '' : 'disabled'}>Zero it (subtract the bias)</button><button class="btn" id="cal-clear">Clear zero + extremes</button></div>` +
+      `<div id="calrep" class="card" style="display:${calRest ? 'block' : 'none'}"></div>`) +
     sec('colours',
       `<div class="note">Tap a colour button = colour the face in front · double tap = next face of that colour · hold = show only that colour.</div>` +
       [1, 2, 3, 4].map(g => `<div class="palrow"><span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span>` +
@@ -980,7 +992,79 @@ function renderPrefs() {
   { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
   document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
   for (const k of ['sndRise', 'sndAttn']) document.getElementById('p-' + k).onchange = e => { prefs[k] = e.target.checked; savePrefs(); };
-  renderMotion();
+  renderMotion(); calWire();
+}
+// ---------- BALL CALIBRATION (Chris 10:45: "a calibration screen for the Spaceball… pills for every axis moving live, plus a cool 3D of
+// a large ball with the centre dot… think up something super cool… I'm wondering if I have some axes that are a bit biased"). Shows the
+// RAW reports (before any zeroing), so a bias is visible. "Measure rest" averages 3 s of hands-off reports; an axis whose offset eats more
+// than half the dead zone is flagged; "Zero it" stores prefs.sbBias, subtracted from every reading the app uses (the es 'sb' handler).
+// If the ball sends nothing at rest (many only report changes), there is nothing to drift: the report says so.
+const sbRaw = { t: [0, 0, 0], r: [0, 0, 0], at: 0, n: 0 };
+const AXES = [['t', 0, 'Slide left / right'], ['t', 1, 'Slide forward / back'], ['t', 2, 'Push down / pull up'], ['r', 0, 'Tilt forward / back'], ['r', 1, 'Tilt left / right'], ['r', 2, 'Twist']];
+let calExt = null, calRest = null, calSampling = null, calTrail = [];
+function calFeed() {
+  const v = AXES.map(([k, i]) => sbRaw[k][i]); if (!calExt) calExt = v.map(x => [x, x]); v.forEach((x, j) => { calExt[j][0] = Math.min(calExt[j][0], x); calExt[j][1] = Math.max(calExt[j][1], x); });
+  if (calSampling) calSampling.push(v);
+}
+const live = () => { const stale = performance.now() - sbRaw.at > 250; return AXES.map(([k, i]) => (stale ? 0 : sbRaw[k][i])); };   // same 250 ms staleness the controls use
+function calWire() {
+  const r = document.getElementById('cal-rest'); if (!r) return;
+  r.onclick = () => { calSampling = []; r.disabled = true; r.textContent = 'Hands off… 3'; let n = 3; const tick = setInterval(() => { n--; r.textContent = n > 0 ? `Hands off… ${n}` : 'Measuring…';
+    if (n <= 0) { clearInterval(tick); const S = calSampling; calSampling = null; const dead = mo().dead;
+      calRest = { n: S.length, avg: AXES.map((_, j) => S.length ? S.reduce((a, s) => a + s[j], 0) / S.length : 0),
+        sd: AXES.map((_, j) => { if (S.length < 2) return 0; const m = S.reduce((a, s) => a + s[j], 0) / S.length; return Math.sqrt(S.reduce((a, s) => a + (s[j] - m) ** 2, 0) / S.length); }), dead };
+      renderPrefs(); showTab('ball'); } }, 1000); };
+  document.getElementById('cal-zero').onclick = () => { if (!calRest) return; const a = calRest.avg; prefs.sbBias = { t: a.slice(0, 3).map(Math.round), r: a.slice(3).map(Math.round) };
+    savePrefs(); toast('zeroed: the bias is subtracted from every reading now'); renderPrefs(); showTab('ball'); };
+  document.getElementById('cal-clear').onclick = () => { delete prefs.sbBias; calExt = null; calRest = null; savePrefs(); renderPrefs(); showTab('ball'); };
+  const rep = document.getElementById('calrep');
+  if (rep && calRest) { const d = calRest.dead, B = prefs.sbBias;
+    rep.innerHTML = calRest.n === 0 ? `<b>Rest: the ball sent nothing while untouched.</b> <span class="note">It only reports changes, so it can't drift at rest — nothing to zero.</span>` :
+      `<b>Rest (${calRest.n} reports in 3 s, dead zone ${d})</b>` + AXES.map(([, , t], j) => { const a = calRest.avg[j], sd = calRest.sd[j], bad = Math.abs(a) > d * 0.5, noisy = Math.abs(a) + 2 * sd > d;
+        return `<div class="brow" style="grid-template-columns:1fr auto auto"><span>${t}</span><span class="kcap">${a >= 0 ? '+' : ''}${a.toFixed(1)} ± ${sd.toFixed(1)}</span>` +
+          `<span class="${bad || noisy ? 'warn' : 'note'}">${bad ? '⚠ biased' : noisy ? '⚠ jittery' : 'centred'}</span></div>`; }).join('') +
+      (B ? `<div class="note">Zero applied: slide ${B.t.join(' / ')} · tilt + twist ${B.r.join(' / ')}</div>` : '');
+  }
+  if (!calLoop.on) { calLoop.on = true; requestAnimationFrame(calLoop); }
+}
+function calLoop() {
+  const cv = document.getElementById('calcv'); if (!cv || !help.classList.contains('on') || prefsTab !== 'ball') { calLoop.on = false; return; }
+  requestAnimationFrame(calLoop);
+  const v = live(), dead = mo().dead, B = prefs.sbBias || { t: [0, 0, 0], r: [0, 0, 0] }, biasV = [...B.t, ...B.r];
+  // the bars: raw value from the centre, dead zone shaded, extremes ticked, the stored zero marked
+  const bars = document.getElementById('calbars');
+  bars.innerHTML = AXES.map(([, , t], j) => { const x = v[j], pct = q => 50 + Math.max(-50, Math.min(50, q / 350 * 50)), e = calExt ? calExt[j] : [0, 0];
+    return `<div style="margin:7px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><span class="note" style="margin:0">${t}</span><b style="font-variant-numeric:tabular-nums;color:${Math.abs(x) > dead ? 'var(--acc)' : 'var(--ink)'}">${x > 0 ? '+' : ''}${Math.round(x)}</b></div>` +
+      `<div style="position:relative;height:12px;border-radius:7px;background:rgb(255 255 255 / .06);border:1px solid var(--line);margin-top:3px;overflow:hidden">` +
+      `<div style="position:absolute;top:0;bottom:0;left:${pct(-dead)}%;width:${pct(dead) - pct(-dead)}%;background:rgb(180 156 255 / .14)"></div>` +
+      `<div style="position:absolute;top:2px;bottom:2px;left:${Math.min(50, pct(x))}%;width:${Math.abs(pct(x) - 50)}%;background:var(--acc);border-radius:5px;box-shadow:0 0 10px var(--acc)"></div>` +
+      `<div style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgb(255 255 255 / .5)"></div>` +
+      (biasV[j] ? `<div style="position:absolute;top:0;bottom:0;left:${pct(biasV[j])}%;width:2px;background:#ffb86b" title="stored zero"></div>` : '') +
+      `<div style="position:absolute;top:0;bottom:0;left:${pct(e[0])}%;width:1px;background:#fff;opacity:.6"></div><div style="position:absolute;top:0;bottom:0;left:${pct(e[1])}%;width:1px;background:#fff;opacity:.6"></div></div></div>`; }).join('') +
+    `<div class="note">${sbRaw.n ? `${sbRaw.n} reports · last ${((performance.now() - sbRaw.at) / 1000).toFixed(1)} s ago` : 'no reports yet: touch the ball'}${prefs.sbBias ? ' · zero applied (orange marks)' : ''}</div>`;
+  // the gyro ball: a glass sphere whose grid turns with the rotation axes; a glowing dot for the slide axes, its size for push/pull
+  const c = cv.getContext('2d'), W = 300, R = 118, cx = W / 2, cy = W / 2, dpr = Math.min(2, devicePixelRatio || 1);
+  if (cv.width !== W * dpr) { cv.width = cv.height = W * dpr; } c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, W);
+  const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R); g.addColorStop(0, '#2a2450'); g.addColorStop(0.7, '#0f0c22'); g.addColorStop(1, '#050410');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill(); c.strokeStyle = 'rgb(180 156 255 / .35)'; c.lineWidth = 1; c.stroke();
+  const ang = q => q / 350 * 0.8, ax = ang(v[3]), ay = ang(v[4]), az = ang(v[5]);
+  const rot = ([x, y, z]) => { let a; a = [x, y * Math.cos(ax) - z * Math.sin(ax), y * Math.sin(ax) + z * Math.cos(ax)]; a = [a[0] * Math.cos(ay) + a[2] * Math.sin(ay), a[1], -a[0] * Math.sin(ay) + a[2] * Math.cos(ay)];
+    return [a[0] * Math.cos(az) - a[1] * Math.sin(az), a[0] * Math.sin(az) + a[1] * Math.cos(az), a[2]]; };
+  const line = pts => { for (let k = 1; k < pts.length; k++) { const p = rot(pts[k - 1]), q = rot(pts[k]), front = (p[2] + q[2]) / 2;
+    c.strokeStyle = front > 0 ? `rgb(180 156 255 / ${0.25 + 0.5 * front})` : 'rgb(180 156 255 / .07)'; c.lineWidth = front > 0 ? 1.2 : 0.8;
+    c.beginPath(); c.moveTo(cx + p[0] * R, cy + p[1] * R); c.lineTo(cx + q[0] * R, cy + q[1] * R); c.stroke(); } };
+  for (let la = -60; la <= 60; la += 30) { const r0 = Math.cos(la * Math.PI / 180), y0 = Math.sin(la * Math.PI / 180); line([...Array(49)].map((_, k) => [r0 * Math.cos(k / 48 * 6.2832), y0, r0 * Math.sin(k / 48 * 6.2832)])); }
+  for (let lo = 0; lo < 180; lo += 30) { const t = lo * Math.PI / 180; line([...Array(49)].map((_, k) => { const p = k / 48 * 6.2832; return [Math.cos(p) * Math.cos(t), Math.sin(p), Math.cos(p) * Math.sin(t)]; })); }
+  const eq = [...Array(49)].map((_, k) => [Math.cos(k / 48 * 6.2832), 0, Math.sin(k / 48 * 6.2832)]);   // the equator, brighter: the horizon of the ball
+  c.save(); c.shadowColor = '#b49cff'; c.shadowBlur = 8; line(eq); c.restore();
+  c.strokeStyle = 'rgb(255 255 255 / .35)'; c.setLineDash([3, 4]); c.beginPath(); c.arc(cx, cy, Math.max(4, dead / 350 * R * 0.85), 0, 6.2832); c.stroke(); c.setLineDash([]);   // dead-zone ring
+  c.strokeStyle = 'rgb(255 255 255 / .25)'; c.beginPath(); c.moveTo(cx - 10, cy); c.lineTo(cx + 10, cy); c.moveTo(cx, cy - 10); c.lineTo(cx, cy + 10); c.stroke();   // crosshair
+  const dx = cx + v[0] / 350 * R * 0.85, dy = cy + v[1] / 350 * R * 0.85, size = Math.max(3, 8 - v[2] / 350 * 6);
+  calTrail.push([dx, dy]); if (calTrail.length > 28) calTrail.shift();
+  calTrail.forEach(([x, y], k) => { c.fillStyle = `rgb(180 156 255 / ${k / calTrail.length * 0.35})`; c.beginPath(); c.arc(x, y, size * 0.6, 0, 6.2832); c.fill(); });
+  c.save(); c.shadowColor = '#d9ceff'; c.shadowBlur = 18; c.fillStyle = '#f2edff'; c.beginPath(); c.arc(dx, dy, size, 0, 6.2832); c.fill(); c.restore();
+  const hl = c.createRadialGradient(cx - R * 0.45, cy - R * 0.5, 0, cx - R * 0.45, cy - R * 0.5, R * 0.5); hl.addColorStop(0, 'rgb(255 255 255 / .16)'); hl.addColorStop(1, 'rgb(255 255 255 / 0)');
+  c.fillStyle = hl; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill();   // a glassy highlight
 }
 // ---------- ANALOG MOTION with virtual detents (spec "Next" priority, Chris 07:35: "the analog fix with the detent feel and adjustable
 // damping"). The Spaceball is a TORQUE: how hard you twist/tilt sets how hard the solid is pushed (dead zone, then a curve), against
