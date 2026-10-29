@@ -123,6 +123,8 @@ const S = {
     check(a.one === 2 && a.back === 18, 'rhombi: one detent = the next face by number, and it wraps backwards (1 → 2, then back two → 18)', a);
     a = await page(`setShape('cube'); await __w(1500); goTo(0); await __w(1500); const q0 = Qt.slice(); knob(8, 0); await __w(1500); return { name: SH.name, front: frontFace() + 1, rolled: q0.some((v, k) => Math.abs(v - Qt[k]) > 0.1) };`);
     check(a.name === 'cube' && a.rolled && a.front !== 1, 'cube: the knob still ROLLS a quarter turn (unchanged)', a);
+    a = await page(`setShape('cuboct'); await __w(1500); goTo(0); await __w(1500); const seq = [frontFace() + 1]; for (let k = 0; k < 7; k++) { knob(8, 0); await __w(1300); seq.push(frontFace() + 1); } return { seq: seq.join(' ') };`);
+    check(a.seq === '1 2 3 4 5 6 1 2', `cuboctahedron: the knob walks the faces in order (${a.seq})`, a);
     await page(`setShape('rhombi'); await __w(800);`);
   },
   async perf() {
