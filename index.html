@@ -440,7 +440,7 @@ function present(q) {
   // their text sideways or upside down, so you couldn't read where anything was. Now EVERY visible screen turns its picture (0/90/180/
   // 270°) so its text reads as upright as it can from where you sit, and the turn animates (CSS transition) the short way round.
   for (const i of visible()) {
-    if (prefs.upright === false) { const f = faces[i]; if (f.rot || !f.placed) { f.rot = 0; f.placed = true; f.el.style.transform = placeT(i, 0); } continue; }   // ⚙ off: faces keep their own orientation; you spin them yourself
+    if (prefs.upright === false && !omarchy()) { const f = faces[i]; if (f.rot || !f.placed) { f.rot = 0; f.placed = true; f.el.style.transform = placeT(i, 0); } continue; }   // ⚙ off: faces keep their own orientation; you spin them yourself
     const m = faceAt(q, i); let best = 0, bs = -1e9;
     for (const th of [0, 90, 180, 270]) { const r = th * Math.PI / 180, p = m.transformPoint(new DOMPoint(Math.sin(r), -Math.cos(r), 0, 0));
       if (-p.y > bs + 1e-9) { bs = -p.y; best = th; } }                 // the picture-up that points most up the screen
@@ -557,11 +557,16 @@ function knobStep(d) {
 // 22:30 Chris (one hand, Omarchy-fast): ON THE CUBE bare → / ← = next / previous face by number (the knob's dial, every shape), ↑ = into
 // that face full screen. IN A FACE the arrows belong to the terminal (history, menus, vim); ⌃⌥↓ takes you back out. Never steals keys
 // from a settings field, the drum, the card or a browser face's address bar.
+// 22:40 Chris: "we call this OMARCHY MODE… an overall toggle… auto centres the faces… focused on keys only". prefs.nav === 'omarchy'
+// (the server already saves "nav", unused till now): bare arrows drive the cube (below) and every face reads upright. Off = arrows go
+// to the selected terminal as before. ⌘↓ and ⌘J work either way.
+const omarchy = () => prefs.nav === 'omarchy';
 addEventListener('keydown', e => {
   // 22:31 Chris: "Control Option Down is too many keys… Omarchy style… Command Down… the Super key". ⌘↓ in a face = back out (terminals
   // don't use ⌘ with the arrows on a Mac); ⌃⌥↓ still works too.
   if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'ArrowDown' && fullFace >= 0 && !zooming) { e.preventDefault(); e.stopPropagation(); toggleFull(); return; }
-  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || fullFace >= 0 || zooming || drumOpen() || qrefOpen() || help.classList.contains('on')) return;
+  if (e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); e.stopPropagation(); showDrum(!drumOpen()); return; }   // ⌘J = the drum (22:40; ⌘A is Select All)
+  if (!omarchy() || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || fullFace >= 0 || zooming || drumOpen() || qrefOpen() || help.classList.contains('on')) return;
   const t = e.target, typingField = t && t.tagName && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) && !(t.classList && t.classList.contains('xterm-helper-textarea'));
   if (typingField) return;
   if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { knobStep(e.key === 'ArrowRight' ? 1 : -1); select(cur()); }
@@ -1112,9 +1117,12 @@ let jHold = null; const drum = { p: 0, v: 0, n: 0, items: [], raf: 0, last: 0, f
 const drumEl = document.getElementById('drum'), drumOpen = () => drumEl.classList.contains('on');
 function drumPhys(d, u, dt) {
   const before = Math.round(d.p), steps = Math.max(1, Math.ceil(dt / 0.004)), h = dt / steps, held = Math.abs(u) > 0.001;
-  for (let k = 0; k < steps; k++) { const off = d.p - Math.round(d.p);
+  // d.goal (22:40, keys): an exact row to roll to; one ↑/↓ press = exactly one row. Without it, the nearest notch (the pocket).
+  const goal = held ? null : (d.goal ?? null);
+  for (let k = 0; k < steps; k++) { const off = d.p - (goal ?? Math.round(d.p));
     const a = held ? 16 * u - 9 * off - 2.6 * d.v : -70 * off - 11 * d.v; d.v += a * h; d.p += d.v * h; }
-  if (!held && Math.abs(d.v) < 0.03 && Math.abs(d.p - Math.round(d.p)) < 0.004) { d.p = Math.round(d.p); d.v = 0; }
+  if (held) d.goal = null;
+  if (!held && Math.abs(d.v) < 0.03 && Math.abs(d.p - (goal ?? Math.round(d.p))) < 0.004) { d.p = goal ?? Math.round(d.p); d.v = 0; d.goal = null; }
   return Math.abs(Math.round(d.p) - before);
 }
 const drumIdx = d => { const n = d.wrap ? d.items.length : d.n; return ((Math.round(d.p) % n) + n) % n; };
@@ -1191,7 +1199,7 @@ drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY *
 drumEl.addEventListener('mousedown', e => { if (drum.gl) { if (e.target.closest('.dstage3d')) drumGo(); else showDrum(false); return; } const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
   if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });
 addEventListener('keydown', e => { if (!drumOpen()) return; const k = e.key;
-  if (k === 'Escape') showDrum(false); else if (k === 'Enter') drumGo(); else if (k === 'ArrowDown') drum.v += 5; else if (k === 'ArrowUp') drum.v -= 5; else return;
+  if (k === 'Escape') showDrum(false); else if (k === 'Enter') drumGo(); else if (k === 'ArrowDown' || k === 'ArrowUp') drum.goal = (drum.goal ?? Math.round(drum.p)) + (k === 'ArrowDown' ? 1 : -1); else return;
   e.preventDefault(); e.stopPropagation(); }, true);
 // ---------- the QUICK REFERENCE card (13:50 Chris, button B): built fresh from the live map every time it opens
 const qref = document.getElementById('qref'), qrefOpen = () => qref.classList.contains('on');
@@ -1210,7 +1218,7 @@ function showQuickRef(on) {
   const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
   const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face']]
                     : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out']];
-  const kb = [['← →  (no keys held)', 'previous / next face'], ['↑  (no keys held)', 'into that face'], ['⌘↓  (Command)', 'back out to the cube'], ['← → ↑', 'roll the solid'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['/', 'this card']];
+  const kb = [['← →  (Omarchy mode)', 'previous / next face'], ['↑  (Omarchy mode)', 'into that face'], ['⌘↓  (Command)', 'back out to the cube'], ['⌘J  (Command)', 'the drum: ↑ ↓ a row · Return go · Esc'], ['← → ↑', 'roll the solid'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['/', 'this card']];
   const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
   qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
     `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
@@ -1229,6 +1237,7 @@ function renderPrefs() {
   const sec = (k, html) => `<div class="sec${prefsTab === k ? ' on' : ''}" data-sec="${k}">${html}</div>`;
   el.innerHTML =
     sec('look',
+      tgl('p-omarchy', 'Omarchy mode: keys first', 'On the cube: ← → pick a face, ↑ goes in, ⌘↓ comes back out, ⌘J the drum. Every face reads upright. Off = arrows go to the terminal.', omarchy()) +
       `<div class="grp">Shape</div>` + seg('shape', [['cube', 'Cube', '6 screens · full-size workspace'], ['cuboct', 'Cuboctahedron', '6 screens set in metal'], ['rhombi', 'Rhombicuboctahedron', '18 screens · an overview']], prefs.shape || 'cube') +
       `<div class="note">Only the cube shows its screens at full size; on the others, go full screen to work.</div>` +
       (parked.length ? `<div class="card"><b>Parked</b> <span class="note">still running · click one to put it on the face in front</span><div style="margin-top:6px">` +
@@ -1307,7 +1316,8 @@ function renderPrefs() {
   document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
   const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
   { const r = document.getElementById('p-glow'); r.oninput = e => { prefs.glow = +e.target.value; r.nextElementSibling.textContent = r.value; document.documentElement.style.setProperty('--glow', prefs.glow); }; r.onchange = savePrefs; }
-  on('p-lowfx', t => { prefs.lowfx = t.checked; }); document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
+  on('p-lowfx', t => { prefs.lowfx = t.checked; });
+  { const om = document.getElementById('p-omarchy'); if (om) om.onchange = e => { prefs.nav = e.target.checked ? 'omarchy' : ''; savePrefs(); present(Qt); toast(omarchy() ? 'Omarchy mode: ← → pick a face · ↑ in · ⌘↓ out · ⌘J the drum' : 'Omarchy mode off: arrows go to the terminal'); }; } document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
     toastUndo(prefs.cluster ? 'faces grouped by colour' : 'faces back in their own places', () => { prefs.cluster = was; savePrefs(); applyPrefs(); }); };
   on('p-fin', t => { prefs.attnFinished = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; }); on('p-drumall', t => { prefs.drumAll = t.checked; });
   on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
@@ -1527,7 +1537,7 @@ function helpSections() {
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
     ['POWERMATE KNOB', [SH.name === 'cube' ? 'turn = roll' : 'turn = step through the faces in order (1, 2, 3…); on the cube it rolls', SH.name === 'cube' ? 'tap = side-to-side ⇄ top-to-bottom' : 'tap = (cube only: side ⇄ top)', 'double tap = select', 'long press = full screen on / off', 'Ctrl+Option+K = hand it to your Mac and back']],
-    ['KEYBOARD (Ctrl+Option)', ['on the cube: ← → = previous / next face · ↑ = into it (no keys held) · in a face: ⌘↓ (or ⌃⌥↓) = back out', 'arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
+    ['KEYBOARD (Ctrl+Option)', ['Omarchy mode (Look tab), on the cube: ← → = previous / next face · ↑ = into it · in a face: ⌘↓ (or ⌃⌥↓) = back out', 'arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W or ⌘J = the drum (↑ ↓ one row, Return go, Esc close) · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
     ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',

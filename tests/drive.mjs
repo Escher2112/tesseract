@@ -136,12 +136,26 @@ const S = {
     console.log('one-hand arrows (on the cube ← → pick a face, ↑ goes in; in a face ⌃⌥↓ comes out)');
     await fresh();
     const key = (code, mods = {}) => `dispatchEvent(new KeyboardEvent('keydown', { key: '${code}', code: '${code}', bubbles: true, ...${JSON.stringify(mods)} }));`;
-    let a = await page(`goTo(0); await __w(1500); ${key('ArrowRight')} await __w(1300); const r = frontFace() + 1; ${key('ArrowRight')} await __w(1300); const r2 = frontFace() + 1; ${key('ArrowLeft')} await __w(1300); return { r, r2, l: frontFace() + 1 };`);
+    let a = await page(`prefs.nav = ''; goTo(0); await __w(1500); ${key('ArrowRight')} await __w(1300); return { front: frontFace() + 1 };`);
+    check(a.front === 1, 'Omarchy mode OFF: a bare arrow leaves the cube alone (it goes to the terminal)', a);
+    a = await page(`prefs.nav = 'omarchy'; goTo(0); await __w(1500); ${key('ArrowRight')} await __w(1300); const r = frontFace() + 1; ${key('ArrowRight')} await __w(1300); const r2 = frontFace() + 1; ${key('ArrowLeft')} await __w(1300); return { r, r2, l: frontFace() + 1 };`);
     check(a.r === 2 && a.r2 === 3 && a.l === 2, 'on the cube → → ← walks 1 → 2 → 3 → 2', a);
     a = await page(`${key('ArrowUp')} await __w(2500); return { full: fullFace + 1 };`);
     check(a.full === 2, '↑ goes into that face, full screen', a);
     a = await page(`${key('ArrowDown')} await __w(800); const stillIn = fullFace + 1; ${key('ArrowDown', { metaKey: true })} await __w(1500); return { stillIn, after: fullFace + 1 };`);
     check(a.stillIn === 2 && a.after === 0, 'in a face a bare ↓ stays with the terminal; ⌘↓ comes back out', a);
+  },
+  async drumkeys() {
+    console.log('the drum from the keyboard (⌘J, ↑ ↓ exactly one row, Return goes)');
+    await fresh();
+    const key = (code, mods = {}) => `dispatchEvent(new KeyboardEvent('keydown', { key: '${code}', code: 'Key${code.toUpperCase()}', bubbles: true, ...${JSON.stringify(mods)} }));`;
+    const arrow = c => `dispatchEvent(new KeyboardEvent('keydown', { key: '${c}', code: '${c}', bubbles: true }));`;
+    let a = await page(`goTo(0); await __w(1500); ${key('j', { metaKey: true })} await __w(800); const open = drumOpen(), start = drum.items[drumIdx(drum)].i + 1;
+      ${arrow('ArrowDown')} await __w(1200); const one = drum.items[drumIdx(drum)].i + 1; ${arrow('ArrowDown')} await __w(1200); const two = drum.items[drumIdx(drum)].i + 1;
+      ${arrow('ArrowUp')} await __w(1200); return { open, start, one, two, back: drum.items[drumIdx(drum)].i + 1 };`);
+    check(a.open && a.one === a.start + 1 && a.two === a.start + 2 && a.back === a.start + 1, '⌘J opens it; each ↑/↓ moves exactly one row', a);
+    a = await page(`const want = drum.items[drumIdx(drum)].i + 1; ${arrow('Enter')} await __w(2500); return { want, drum: drumOpen(), full: fullFace + 1 };`);
+    check(!a.drum && a.full === a.want, 'Return goes to that row and zooms in', a);
   },
   async perf() {
     console.log('perf (a still solid must not rewrite the page)');
