@@ -132,6 +132,17 @@ const S = {
     check(a.seq === '1 2 3 4 5 6 1 2', `cuboctahedron: the knob walks the faces in order (${a.seq})`, a);
     await page(`setShape('rhombi'); await __w(800);`);
   },
+  async keys() {
+    console.log('one-hand arrows (on the cube ← → pick a face, ↑ goes in; in a face ⌃⌥↓ comes out)');
+    await fresh();
+    const key = (code, mods = {}) => `dispatchEvent(new KeyboardEvent('keydown', { key: '${code}', code: '${code}', bubbles: true, ...${JSON.stringify(mods)} }));`;
+    let a = await page(`goTo(0); await __w(1500); ${key('ArrowRight')} await __w(1300); const r = frontFace() + 1; ${key('ArrowRight')} await __w(1300); const r2 = frontFace() + 1; ${key('ArrowLeft')} await __w(1300); return { r, r2, l: frontFace() + 1 };`);
+    check(a.r === 2 && a.r2 === 3 && a.l === 2, 'on the cube → → ← walks 1 → 2 → 3 → 2', a);
+    a = await page(`${key('ArrowUp')} await __w(2500); return { full: fullFace + 1 };`);
+    check(a.full === 2, '↑ goes into that face, full screen', a);
+    a = await page(`${key('ArrowDown')} await __w(800); const stillIn = fullFace + 1; ${key('ArrowDown', { ctrlKey: true, altKey: true })} await __w(1500); return { stillIn, after: fullFace + 1 };`);
+    check(a.stillIn === 2 && a.after === 0, 'in a face a bare ↓ stays with the terminal; ⌃⌥↓ comes back out', a);
+  },
   async perf() {
     console.log('perf (a still solid must not rewrite the page)');
     await fresh();

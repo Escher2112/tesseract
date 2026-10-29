@@ -554,6 +554,18 @@ function knobStep(d) {
   const i = list.indexOf(cur()), n = list[((i < 0 ? 0 : i) + d + list.length) % list.length]; goTo(n);
   knobFast = performance.now() + 900; knobPending = n;                 // travel firm + fast, and click the moment it's centred (see physics)
 }
+// 22:30 Chris (one hand, Omarchy-fast): ON THE CUBE bare → / ← = next / previous face by number (the knob's dial, every shape), ↑ = into
+// that face full screen. IN A FACE the arrows belong to the terminal (history, menus, vim); ⌃⌥↓ takes you back out. Never steals keys
+// from a settings field, the drum, the card or a browser face's address bar.
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || fullFace >= 0 || zooming || drumOpen() || qrefOpen() || help.classList.contains('on')) return;
+  const t = e.target, typingField = t && t.tagName && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) && !(t.classList && t.classList.contains('xterm-helper-textarea'));
+  if (typingField) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { knobStep(e.key === 'ArrowRight' ? 1 : -1); select(cur()); }
+  else if (e.key === 'ArrowUp') enterFace(cur());
+  else if (e.key !== 'ArrowDown') return;                                 // ↓ on the cube: nothing (and it doesn't leak into a shell)
+  e.preventDefault(); e.stopPropagation();
+}, true);
 function toastUndo(msg, fn) {                                            // (Riven 5) a regroup never happens silently: it comes with an undo
   const el = document.getElementById('toast'); el.textContent = msg + '  '; const b = document.createElement('button'); b.textContent = 'undo';
   b.onclick = () => { fn(); el.style.display = 'none'; }; el.appendChild(b); el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 6000);
@@ -563,7 +575,7 @@ function showMode() { toast(SH.name !== 'cube' ? 'on this shape the knob steps t
 addEventListener('keydown', e => {
   if (!(e.ctrlKey && e.altKey)) return;
   const k = e.key; let hit = true;
-  if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
+  if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') { if (fullFace >= 0) toggleFull(); else turn(0, 1); }   // ⌃⌥↓ in a face = back out (22:30)
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
   else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen()); else if (e.code === 'KeyW') showDrum(!drumOpen()); else if (e.code === 'KeyK') post('/config?knob=toggle');
@@ -1195,7 +1207,7 @@ function showQuickRef(on) {
   const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
   const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face']]
                     : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out']];
-  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['/', 'this card']];
+  const kb = [['← →  (no keys held)', 'previous / next face'], ['↑  (no keys held)', 'into that face'], ['↓', 'back out to the cube'], ['← → ↑', 'roll the solid'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['/', 'this card']];
   const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
   qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
     `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
@@ -1512,7 +1524,7 @@ function helpSections() {
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
     ['POWERMATE KNOB', [SH.name === 'cube' ? 'turn = roll' : 'turn = step through the faces in order (1, 2, 3…); on the cube it rolls', SH.name === 'cube' ? 'tap = side-to-side ⇄ top-to-bottom' : 'tap = (cube only: side ⇄ top)', 'double tap = select', 'long press = full screen on / off', 'Ctrl+Option+K = hand it to your Mac and back']],
-    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
+    ['KEYBOARD (Ctrl+Option)', ['on the cube: ← → = previous / next face · ↑ = into it (no keys held) · in a face: ⌃⌥↓ = back out', 'arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
     ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',
