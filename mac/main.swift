@@ -22,6 +22,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var shown: Int? = nil
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // 22:50 Chris: ⌘↓ "doesn't work" from a browser face. The browser view claims ⌘↓ (its own "go to end") before the menu ever sees it,
+        // so the app now watches keys itself, ahead of every view: ⌘↓ (no other modifier) = Back to the Cube, wherever the keyboard is.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] ev in
+            let mods = ev.modifierFlags.intersection([.command, .option, .control, .shift])
+            if mods == [.command] && ev.keyCode == 125 {             // 125 = the down arrow
+                self?.backToCube(nil); return nil                      // swallowed: neither the browser nor a shell sees it
+            }
+            return ev
+        }
         let cfg = WKWebViewConfiguration()
         cfg.userContentController.add(self, name: "tdt")
         web = WKWebView(frame: .zero, configuration: cfg)
