@@ -196,7 +196,11 @@ let viewItem = NSMenuItem(); menu.addItem(viewItem)
 let view = NSMenu(title: "View")
 view.addItem(withTitle: "Reload", action: #selector(WKWebView.reload(_:)), keyEquivalent: "r")   // the shells keep running
 view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
-let back = view.addItem(withTitle: "Back to the Cube", action: #selector(AppDelegate.backToCube(_:)), keyEquivalent: "\r"); back.keyEquivalentModifierMask = [.command, .option]; back.target = delegate
+// 22:47 Chris: "Super Down works perfect… we're going to use it for the whole app." ⌘↓ is the menu shortcut, so it works even while a
+// browser face has the keyboard (the page never sees keys then). ⌘⌥↩ still works: a hidden second item with the same action.
+let back = view.addItem(withTitle: "Back to the Cube", action: #selector(AppDelegate.backToCube(_:)), keyEquivalent: String(Character(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!))); back.keyEquivalentModifierMask = [.command]; back.target = delegate
+let backOld = view.addItem(withTitle: "Back to the Cube (old key)", action: #selector(AppDelegate.backToCube(_:)), keyEquivalent: "\r"); backOld.keyEquivalentModifierMask = [.command, .option]; backOld.target = delegate
+backOld.isHidden = true; backOld.allowsKeyEquivalentWhenHidden = true
 viewItem.submenu = view
 app.mainMenu = menu
 app.run()
