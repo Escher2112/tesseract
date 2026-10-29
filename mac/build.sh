@@ -30,5 +30,9 @@ SUP="$HOME/Library/Application Support/3D Terminal"
 # the permissions you already gave it.
 mkdir -p "$SUP/core"; cp "$ROOT/server.py" "$ROOT/index.html" "$ROOT/gl.js" "$SUP/core/"; rm -rf "$SUP/core/vendor"; cp -R "$ROOT/vendor" "$SUP/core/vendor"
 if [ ! -x "$SUP/venv/bin/python3" ]; then mkdir -p "$SUP"; python3 -m venv "$SUP/venv" && "$SUP/venv/bin/pip" -q install hidapi; fi
-codesign --force -s - "$APP" >/dev/null 2>&1 || true
+# 2026-10-29: sign with Chris's home-made "Tesseract Local Signing" certificate when it exists, so macOS keeps the PowerMate's Input
+# Monitoring across rebuilds (an ad-hoc signature is new every build, and macOS forgets the permission each time). Fallback: ad-hoc.
+SIGN_ID="Tesseract Local Signing"
+if security find-identity -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then codesign --force -s "$SIGN_ID" "$APP" && echo "signed with: $SIGN_ID"
+else codesign --force -s - "$APP" >/dev/null 2>&1 || true; echo "signed ad-hoc (no '$SIGN_ID' certificate yet: the PowerMate permission resets on each rebuild)"; fi
 echo "built: $APP"

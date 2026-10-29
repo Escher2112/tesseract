@@ -199,7 +199,12 @@ def find_3d_mouse(hid):
 # switch is ONE GLOBAL for every device: handing the ball back (button 6) flipped it to "share", and a PowerMate (re)opening in that moment
 # was opened SHARED and stayed that way, so macOS kept scrolling with it. Now every open sets the switch for ITS device under one lock,
 # and the PowerMate has its own hand-back (Ctrl+Option+K or ⚙ → Buttons), like the ball's button 6.
-HID_LOCK = threading.Lock(); knob = {"free": False, "reopen": False}
+HID_LOCK = threading.Lock(); knob = {"free": False, "reopen": False, "status": "missing"}
+# 2026-10-29 Chris: "figure out this PowerMate mess". The knob failed SILENTLY when macOS withheld Input Monitoring (after every rebuild).
+# Now its state is reported to the page: "ok" (the cube has it) · "missing" (not plugged in) · "blocked" (plugged in, macOS refuses to let
+# us open it = Input Monitoring is off for Tesseract). ⚙ → Buttons shows it, with a button that opens the right Settings page.
+def knob_status(s):
+    if knob.get("status") != s: knob["status"] = s; send({"k": "knobstat", "s": s})
 def set_exclusive(on):                                                  # macOS only: hidapi's switch between grabbing and sharing
     try:
         import ctypes, hid
@@ -219,6 +224,7 @@ def device_loop(ids, parse):
                 else: set_exclusive(not st["free"]); h = hid.device(); h.open(*ids)
                 set_exclusive(True)
             h.set_nonblocking(1); st["reopen"] = False
+            if ids != SB_IDS: knob_status("ok")
             while not st["reopen"]:
                 r = h.read(16, 250)                                    # blocks up to 250 ms: ~0 CPU while the ball sits still
                 if r: parse(r)
@@ -226,6 +232,9 @@ def device_loop(ids, parse):
         except (OSError, IOError):
             try: h.close()
             except Exception: pass
+            if ids != SB_IDS:
+                try: knob_status("blocked" if hid.enumerate(*ids) else "missing")   # plugged in but unopenable = no permission
+                except Exception: pass
             time.sleep(1.0)
 def parse_sb(r):
     if r[0] == 3 and len(r) >= 3:
@@ -279,7 +288,7 @@ class H(BaseHTTPRequestHandler):
         for s in shells:                                               # the first six always run; more start when a shape shows them
             if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
-        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})})); mine.put(json.dumps({"k": "knobfree", "free": knob["free"], "quiet": True}))
+        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})})); mine.put(json.dumps({"k": "knobfree", "free": knob["free"], "quiet": True})); mine.put(json.dumps({"k": "knobstat", "s": knob["status"], "quiet": True}))
         if sb.get("dev"): mine.put(json.dumps(sb["dev"]))                # which 3D mouse this is (the page shows its own button labels)
         with attn_lock:
             for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))

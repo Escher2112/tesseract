@@ -365,6 +365,7 @@ es.onmessage = e => {
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
+  else if (m.k === 'knobstat') { const was = knobStat; knobStat = m.s; if (m.s === 'blocked' && was !== 'blocked') toast('PowerMate blocked: Tesseract needs Input Monitoring · ⚙ → Buttons → Open Settings'); if (help.classList.contains('on')) renderPrefs(); }
   else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
 };
 es.onopen = () => { startShown(); faces.forEach(refit); };
@@ -1104,7 +1105,7 @@ function buttonsTable() {
     BUTTON_ACTIONS.map(([k, t]) => `<div class="brow"><span>${t}${used[B[k]] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(B[k])}</span><a class="linkbtn" href="#" data-learn="${k}">change</a></div>`).join('') +
     `<div class="brow"><span>hand the ball back to your Mac${used[tog] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(tog)}</span><a class="linkbtn" href="#" id="learn">change</a></div>` +
     `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>` +
-    `<div class="grp">PowerMate</div><div class="brow"><span>${knobFree ? 'handed to your Mac (it scrolls there)' : 'on the cube'}</span><span class="kcap">⌃⌥K</span><a class="linkbtn" href="#" id="p-knob">${knobFree ? 'take it back' : 'hand it to the Mac'}</a></div>`;
+    `<div class="grp">PowerMate</div>` + (knobStat === 'blocked' ? `<div class="card"><b>Blocked by macOS.</b> <span class="note">Tesseract needs <b>Input Monitoring</b>: turn Tesseract on there, then quit and reopen the app.</span> <a class="linkbtn" href="#" id="p-privacy">Open Settings</a></div>` : `<div class="note">${knobStat === 'ok' ? 'Connected.' : knobStat === 'missing' ? 'Not plugged in.' : ''}</div>`) + `<div class="brow"><span>${knobFree ? 'handed to your Mac (it scrolls there)' : 'on the cube'}</span><span class="kcap">⌃⌥K</span><a class="linkbtn" href="#" id="p-knob">${knobFree ? 'take it back' : 'hand it to the Mac'}</a></div>`;
 }
 
 // ---------- the WAITING DRUM (14:02 Chris: "hold 5 = a list of waiting sessions… push up and down on the ball and they roll past and
@@ -1112,7 +1113,7 @@ function buttonsTable() {
 // obsidian faceted cylinder with chrome end cap bearings"). Waiting sessions, oldest first; when nothing waits, every session (a switcher).
 // drumPhys is pure (tests/maths.test.mjs): p = position in facets, v = facets/s, u = the ball's push (-1..1). Held: push + a weak notch
 // spring (you feel each facet go by); let go: a firm spring to the nearest facet, a little overshoot, then it locks. Returns detents crossed.
-let knobFree = false;   // 22:00: the PowerMate's own hand-back (server ?knob=toggle), like the ball's button 6
+let knobFree = false, knobStat = '';   // knobStat (10-29): 'ok' · 'missing' · 'blocked' (macOS withholds Input Monitoring)   // 22:00: the PowerMate's own hand-back (server ?knob=toggle), like the ball's button 6
 let jHold = null; const drum = { p: 0, v: 0, n: 0, items: [], raf: 0, last: 0, front: -1 };
 const drumEl = document.getElementById('drum'), drumOpen = () => drumEl.classList.contains('on');
 function drumPhys(d, u, dt) {
@@ -1308,6 +1309,7 @@ function renderPrefs() {
   const setHome = i => { prefs.homeFace = i; savePrefs(); faces.forEach(label); renderPrefs(); toast(`face ${i + 1} is home ⌂`); };
   const ph = document.getElementById('p-home'); if (ph) ph.onchange = () => setHome(+ph.value);
   const phh = document.getElementById('p-homehere'); if (phh) phh.onclick = () => setHome(cur());
+  const pv = document.getElementById('p-privacy'); if (pv) pv.onclick = e => { e.preventDefault(); NATIVE && NATIVE.postMessage({ op: 'privacy', face: 0 }); };
   const pk = document.getElementById('p-knob'); if (pk) pk.onclick = e => { e.preventDefault(); post('/config?knob=toggle'); };
   const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
     prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();

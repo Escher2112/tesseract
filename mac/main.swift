@@ -12,6 +12,7 @@
 // and we answer with window.webSnap(face, dataURL, title, url) (a picture) and window.webNav(face, title, url) (after every page load).
 import AppKit
 import WebKit
+import IOKit.hid
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
     var window: NSWindow!
@@ -22,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var shown: Int? = nil
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // 2026-10-29: ASK macOS for Input Monitoring (the PowerMate is a mouse to macOS). Without this request the helper's open just fails
+        // silently and no prompt ever appears; with it, macOS shows its "allow" prompt and lists Tesseract in Settings by itself.
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted { _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) }
         // 22:50 Chris: ⌘↓ "doesn't work" from a browser face. The browser view claims ⌘↓ (its own "go to end") before the menu ever sees it,
         // so the app now watches keys itself, ahead of every view: ⌘↓ (no other modifier) = Back to the Cube, wherever the keyboard is.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] ev in
@@ -100,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         case "nav":
             guard let b = browsers[face], let go = m["go"] as? String else { return }
             if go == "back" { b.goBack() } else if go == "forward" { b.goForward() } else { b.reload() }
+        case "privacy":                                                  // ⚙ → Buttons → Open Settings (the PowerMate is blocked)
+            if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") { NSWorkspace.shared.open(u) }
         case "close":
             browsers[face]?.removeFromSuperview(); browsers[face] = nil; if shown == face { shown = nil; window.makeFirstResponder(web) }
         default: break
