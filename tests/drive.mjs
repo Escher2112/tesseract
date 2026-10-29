@@ -116,6 +116,15 @@ const S = {
     await page(`await __btn(5, 650); await __w(900); sbT = [0, 0, -150]; sbR = [-90, 20, 0]; sbAt = performance.now(); await __w(200);`); await shot('drum-readout.png');
     await page(`sbT = [0, 0, 0]; sbR = [0, 0, 0]; showDrum(false);`);
   },
+  async knob() {
+    console.log('PowerMate (a dial through the faces on the big shapes; rolls on the cube)');
+    await fresh();
+    let a = await page(`goTo(0); await __w(1500); knob(8, 0); await __w(1500); const one = frontFace() + 1; knob(-16, 0); await __w(1500); return { one, back: frontFace() + 1 };`);
+    check(a.one === 2 && a.back === 18, 'rhombi: one detent = the next face by number, and it wraps backwards (1 → 2, then back two → 18)', a);
+    a = await page(`setShape('cube'); await __w(1500); goTo(0); await __w(1500); const q0 = Qt.slice(); knob(8, 0); await __w(1500); return { name: SH.name, front: frontFace() + 1, rolled: q0.some((v, k) => Math.abs(v - Qt[k]) > 0.1) };`);
+    check(a.name === 'cube' && a.rolled && a.front !== 1, 'cube: the knob still ROLLS a quarter turn (unchanged)', a);
+    await page(`setShape('rhombi'); await __w(800);`);
+  },
   async perf() {
     console.log('perf (a still solid must not rewrite the page)');
     await fresh();

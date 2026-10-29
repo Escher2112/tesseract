@@ -530,7 +530,7 @@ function knob(t, b) {
   const now = performance.now();
   if (b && !kHeld) { kHeld = true; kPress = now; kTurned = false; }
   if (t) { kTurned = true; knobAcc += t;
-    while (Math.abs(knobAcc) >= 8) { const d = knobAcc > 0 ? 1 : -1; kMode === 'side' ? turn(d, 0) : turn(0, d); knobAcc -= d * 8; } }
+    while (Math.abs(knobAcc) >= 8) { const d = knobAcc > 0 ? 1 : -1; if (SH.name !== 'cube') knobStep(d); else kMode === 'side' ? turn(d, 0) : turn(0, d); knobAcc -= d * 8; } }
   if (!b && kHeld) {
     kHeld = false; if (kTurned) return;
     if (now - kPress > 600) { toggleFull(); return; }
@@ -538,12 +538,19 @@ function knob(t, b) {
     else kTapTimer = setTimeout(() => { kTapTimer = null; kMode = kMode === 'side' ? 'updown' : 'side'; showMode(); }, 300);
   }
 }
+// 22:11 Chris: the PowerMate on the cuboctahedron / rhombicuboctahedron "doesn't fit on a straight face": a knob is one axis, and a quarter
+// roll lands between screens there. On those shapes the knob is now a DIAL THROUGH THE FACES: each detent goes to the next / previous face
+// by number (1, 2, 3 … wrapping), always landing square. The cube keeps its rolls. Only the knob uses this.
+function knobStep(d) {
+  if (fullFace >= 0) return; const list = visible().slice().sort((a, b) => a - b); if (!list.length) return;
+  const i = list.indexOf(cur()), n = list[((i < 0 ? 0 : i) + d + list.length) % list.length]; goTo(n);
+}
 function toastUndo(msg, fn) {                                            // (Riven 5) a regroup never happens silently: it comes with an undo
   const el = document.getElementById('toast'); el.textContent = msg + '  '; const b = document.createElement('button'); b.textContent = 'undo';
   b.onclick = () => { fn(); el.style.display = 'none'; }; el.appendChild(b); el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 6000);
 }
 function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 1500); }
-function showMode() { toast(`knob now rolls ${kMode === 'side' ? 'side to side' : 'top to bottom'}`); }
+function showMode() { toast(SH.name !== 'cube' ? 'on this shape the knob steps through the faces in order' : `knob now rolls ${kMode === 'side' ? 'side to side' : 'top to bottom'}`); }
 addEventListener('keydown', e => {
   if (!(e.ctrlKey && e.altKey)) return;
   const k = e.key; let hit = true;
@@ -1494,7 +1501,7 @@ function helpSections() {
         'shapes: cube (full-size screens), cuboctahedron, rhombicuboctahedron (18, an overview)', 'parked sessions keep running; Look tab puts them back']],
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
-    ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
+    ['POWERMATE KNOB', [SH.name === 'cube' ? 'turn = roll' : 'turn = step through the faces in order (1, 2, 3…); on the cube it rolls', SH.name === 'cube' ? 'tap = side-to-side ⇄ top-to-bottom' : 'tap = (cube only: side ⇄ top)', 'double tap = select', 'long press = full screen on / off', 'Ctrl+Option+K = hand it to your Mac and back']],
     ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
