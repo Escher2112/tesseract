@@ -104,6 +104,10 @@ const S = {
     check(/nothing is waiting/.test(a.toast), 'tap 5 with nothing waiting says so', a);
     a = await page(`await __btn(1); await __w(1600); return __at();`);
     check(a.front === 4 || a.front === 10, 'tap colour 1 goes to a face of that colour', a);
+    // 22:00 the PowerMate's hand-back: Ctrl+Option+K → the server flips it and tells the page; again → back to the cube
+    a = await page(`dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyK', key: 'k', ctrlKey: true, altKey: true })); await __w(600); const one = { free: knobFree, toast: document.getElementById('toast').textContent };
+      dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyK', key: 'k', ctrlKey: true, altKey: true })); await __w(600); return { one, two: { free: knobFree, toast: document.getElementById('toast').textContent } };`);
+    check(a.one.free === true && /PowerMate → your Mac/.test(a.one.toast) && a.two.free === false && /PowerMate → the cube/.test(a.two.toast), 'Ctrl+Option+K hands the PowerMate to the Mac and back', a);
   },
   async shots() {   // not a check: pictures to LOOK at (SHOTS=/some/dir node tests/drive.mjs shots)
     const dir = process.env.SHOTS; if (!dir) { console.log('shots: set SHOTS=<folder> to save pictures'); return; }

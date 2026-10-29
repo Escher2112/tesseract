@@ -365,6 +365,7 @@ es.onmessage = e => {
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
+  else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
 };
 es.onopen = () => { startShown(); faces.forEach(refit); };
 function startShown() { visible().forEach(i => post(`/start?f=${i}`)); }
@@ -549,7 +550,7 @@ addEventListener('keydown', e => {
   if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') turn(0, 1);
   else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
   else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
-  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen()); else if (e.code === 'KeyW') showDrum(!drumOpen());
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen()); else if (e.code === 'KeyW') showDrum(!drumOpen()); else if (e.code === 'KeyK') post('/config?knob=toggle');
   else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
   else hit = false;
   if (hit) { e.preventDefault(); e.stopPropagation(); }
@@ -1066,7 +1067,8 @@ function buttonsTable() {
       (L && L.preset ? `<div style="margin-top:6px"><a class="linkbtn" href="#" id="p-preset">Use this model's suggested map</a></div>` : '') + `</div>` +
     BUTTON_ACTIONS.map(([k, t]) => `<div class="brow"><span>${t}${used[B[k]] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(B[k])}</span><a class="linkbtn" href="#" data-learn="${k}">change</a></div>`).join('') +
     `<div class="brow"><span>hand the ball back to your Mac${used[tog] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(tog)}</span><a class="linkbtn" href="#" id="learn">change</a></div>` +
-    `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>`;
+    `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>` +
+    `<div class="grp">PowerMate</div><div class="brow"><span>${knobFree ? 'handed to your Mac (it scrolls there)' : 'on the cube'}</span><span class="kcap">⌃⌥K</span><a class="linkbtn" href="#" id="p-knob">${knobFree ? 'take it back' : 'hand it to the Mac'}</a></div>`;
 }
 
 // ---------- the WAITING DRUM (14:02 Chris: "hold 5 = a list of waiting sessions… push up and down on the ball and they roll past and
@@ -1074,6 +1076,7 @@ function buttonsTable() {
 // obsidian faceted cylinder with chrome end cap bearings"). Waiting sessions, oldest first; when nothing waits, every session (a switcher).
 // drumPhys is pure (tests/maths.test.mjs): p = position in facets, v = facets/s, u = the ball's push (-1..1). Held: push + a weak notch
 // spring (you feel each facet go by); let go: a firm spring to the nearest facet, a little overshoot, then it locks. Returns detents crossed.
+let knobFree = false;   // 22:00: the PowerMate's own hand-back (server ?knob=toggle), like the ball's button 6
 let jHold = null; const drum = { p: 0, v: 0, n: 0, items: [], raf: 0, last: 0, front: -1 };
 const drumEl = document.getElementById('drum'), drumOpen = () => drumEl.classList.contains('on');
 function drumPhys(d, u, dt) {
@@ -1176,7 +1179,7 @@ function showQuickRef(on) {
   const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
   const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face']]
                     : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out']];
-  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['/', 'this card']];
+  const kb = [['← → ↑ ↓', 'roll'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['/', 'this card']];
   const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
   qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
     `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
@@ -1265,6 +1268,7 @@ function renderPrefs() {
   const setHome = i => { prefs.homeFace = i; savePrefs(); faces.forEach(label); renderPrefs(); toast(`face ${i + 1} is home ⌂`); };
   const ph = document.getElementById('p-home'); if (ph) ph.onchange = () => setHome(+ph.value);
   const phh = document.getElementById('p-homehere'); if (phh) phh.onclick = () => setHome(cur());
+  const pk = document.getElementById('p-knob'); if (pk) pk.onclick = e => { e.preventDefault(); post('/config?knob=toggle'); };
   const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
     prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();
     toastUndo(`${devLayout().model}: suggested map applied`, () => { prefs.buttons = was; prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: was }); savePrefs(); renderPrefs(); }); };
@@ -1491,7 +1495,7 @@ function helpSections() {
     ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
         'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
     ['POWERMATE KNOB', ['turn = roll', 'tap = side-to-side ⇄ top-to-bottom', 'double tap = select', 'long press = full screen on / off']],
-    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card', 'Esc = close settings or the card']],
+    ['KEYBOARD (Ctrl+Option)', ['arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W = the waiting drum · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'Esc = close settings or the card']],
     ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
         `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
     ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',

@@ -183,7 +183,7 @@ def load_config():
 def save_config(c):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True); json.dump(c, open(CONFIG, "w"))
 sb["toggle"] = int(load_config().get("toggle_button", 6))            # 1-based button number
-PAGE_BUTTONS = {"select", "full", "home", "jump", "back", "color1", "color2", "color3", "color4"}   # buttons the page binds (it stores them in its prefs)
+PAGE_BUTTONS = {"select", "full", "home", "jump", "back", "forward", "quickref", "color1", "color2", "color3", "color4"}   # (22:00 + forward/quickref: re-learning them silently did nothing)   # buttons the page binds (it stores them in its prefs)
 PREF_KEYS = {"sbBias", "buttonsByDevice", "buttonsDevice", "material", "bloom", "gl", "light", "quality", "matrixPalette", "web", "offer", "offerDelay", "sndRise", "sndAttn", "bgDim", "colors", "palette", "buttons", "glow", "lowfx", "cluster", "attnFinished", "quiet", "ageMin", "shape", "layouts", "theme", "motes", "nav", "motion", "click", "handSrc", "flip", "cubeClassic", "oneAxis", "upright", "homeFace", "drumAll"}
 # Any 3Dconnexion 3D mouse (23:23, before the public post): the old ones carry Logitech's vendor id 0x046d with product 0xc6xx
 # (Spaceball 5000 = c621, SpaceNavigator = c626, SpacePilot = c625, SpaceMouse Pro = c62b…); the newer ones carry 3Dconnexion's own
@@ -195,6 +195,11 @@ def find_3d_mouse(hid):
             sb["vendor"] = v; sb["dev"] = {"k": "device", "name": d.get("product_string") or "3D mouse", "vid": f"{v:04x}", "pid": f"{p:04x}"}
             return d["path"]
     return None
+# 2026-10-28 22:00 Chris: "the PowerMate is not functioning… just doing normal cursor things, scrolling very slowly." hidapi's grab/share
+# switch is ONE GLOBAL for every device: handing the ball back (button 6) flipped it to "share", and a PowerMate (re)opening in that moment
+# was opened SHARED and stayed that way, so macOS kept scrolling with it. Now every open sets the switch for ITS device under one lock,
+# and the PowerMate has its own hand-back (Ctrl+Option+K or ⚙ → Buttons), like the ball's button 6.
+HID_LOCK = threading.Lock(); knob = {"free": False, "reopen": False}
 def set_exclusive(on):                                                  # macOS only: hidapi's switch between grabbing and sharing
     try:
         import ctypes, hid
@@ -205,17 +210,19 @@ def device_loop(ids, parse):
     except ImportError: print("no hidapi: pip install hidapi to use a Spaceball / PowerMate (keyboard and mouse still work)", flush=True); return
     while True:
         try:
-            if ids == SB_IDS:
-                path = find_3d_mouse(hid)
-                if path is None: raise OSError("no 3D mouse plugged in")
-                set_exclusive(not sb["free"]); h = hid.device(); h.open_path(path)
-            else: h = hid.device(); h.open(*ids)
-            h.set_nonblocking(1)
-            if ids == SB_IDS: set_exclusive(True); sb["reopen"] = False
-            while not (ids == SB_IDS and sb["reopen"]):
+            st = sb if ids == SB_IDS else knob                           # this device's own state: grabbed (cube) or shared (handed to the Mac)
+            with HID_LOCK:                                             # the switch is global: set it for THIS open only, then put it back
+                if ids == SB_IDS:
+                    path = find_3d_mouse(hid)
+                    if path is None: raise OSError("no 3D mouse plugged in")
+                    set_exclusive(not st["free"]); h = hid.device(); h.open_path(path)
+                else: set_exclusive(not st["free"]); h = hid.device(); h.open(*ids)
+                set_exclusive(True)
+            h.set_nonblocking(1); st["reopen"] = False
+            while not st["reopen"]:
                 r = h.read(16, 250)                                    # blocks up to 250 ms: ~0 CPU while the ball sits still
                 if r: parse(r)
-            h.close()                                                  # button 6 flipped the mode: reopen grabbed or shared
+            h.close()                                                  # a hand-back flipped the mode: reopen grabbed or shared
         except (OSError, IOError):
             try: h.close()
             except Exception: pass
@@ -241,7 +248,9 @@ def parse_sb(r):
         send({"k": "sb", "a": "t", "v": list(v[:3])}); send({"k": "sb", "a": "r", "v": list(v[3:])}); return
     if r[0] in (1, 2) and len(r) >= 7: send({"k": "sb", "a": "t" if r[0] == 1 else "r", "v": list(struct.unpack("<3h", bytes(r[1:7])))})
     elif r[0] == 3 and len(r) >= 3: send({"k": "sbb", "m": int.from_bytes(bytes(r[1:5]), "little")})
-def parse_knob(r): send({"k": "knob", "t": r[1] - 256 if r[1] > 127 else r[1], "b": r[0]})
+def parse_knob(r):
+    if knob["free"]: return                                            # handed to the Mac: the cube ignores it (macOS scrolls with it)
+    send({"k": "knob", "t": r[1] - 256 if r[1] > 127 else r[1], "b": r[0]})
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -270,7 +279,7 @@ class H(BaseHTTPRequestHandler):
         for s in shells:                                               # the first six always run; more start when a shape shows them
             if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
-        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})}))
+        mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})})); mine.put(json.dumps({"k": "knobfree", "free": knob["free"], "quiet": True}))
         if sb.get("dev"): mine.put(json.dumps(sb["dev"]))                # which 3D mouse this is (the page shows its own button labels)
         with attn_lock:
             for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))
@@ -290,6 +299,10 @@ class H(BaseHTTPRequestHandler):
             what = q.get("learn", [""])[0]                             # ?learn=jump / back / color1… = learn a button for the page instead
             if what == "1": sb["learn"] = True
             elif what in PAGE_BUTTONS: sb["learn"] = what
+            kn = q.get("knob", [""])[0]                                # ?knob=toggle|free|grab: hand the PowerMate to the Mac / take it back
+            if kn in ("toggle", "free", "grab"):
+                knob["free"] = (not knob["free"]) if kn == "toggle" else (kn == "free"); knob["reopen"] = True
+                send({"k": "knobfree", "free": knob["free"]})
             if q.get("prefs", ["0"])[0] == "1":                        # the page's own settings, kept per computer in config.json
                 try: new = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", "0") or 0), 65536)))
                 except Exception: return self.deny(400)
