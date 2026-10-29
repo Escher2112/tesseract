@@ -119,11 +119,16 @@ const S = {
   async knob() {
     console.log('PowerMate (a dial through the faces on the big shapes; rolls on the cube)');
     await fresh();
-    let a = await page(`goTo(0); await __w(1500); knob(8, 0); await __w(1500); const one = frontFace() + 1; knob(-16, 0); await __w(1500); return { one, back: frontFace() + 1 };`);
-    check(a.one === 2 && a.back === 18, 'rhombi: one detent = the next face by number, and it wraps backwards (1 → 2, then back two → 18)', a);
+    let a = await page(`goTo(0); await __w(1500); knob(12, 0); await __w(1500); const one = frontFace() + 1; knob(-12, 0); await __w(1500); const back = frontFace() + 1; knob(-12, 0); await __w(1500); return { one, back, wrap: frontFace() + 1 };`);
+    check(a.one === 2 && a.back === 1 && a.wrap === 18, 'rhombi: a firm turn = the next face by number, and it wraps backwards (1 → 2 → 1 → 18)', a);
+    a = await page(`goTo(0); await __w(1500); knob(7, 0); await __w(600); knob(4, 0); await __w(1200); return { front: frontFace() + 1 };`);
+    check(a.front === 1, 'the pocket: a nudge that stops short falls back; it does not add up to a step', a);
+    a = await page(`let clicks = []; const t0 = performance.now(); const orig = clickSound; window.clickSound = (...x) => { clicks.push(Math.round(performance.now() - t0)); return orig(...x); };
+      knob(12, 0); await __w(1500); window.clickSound = orig; return { clicks, front: frontFace() + 1 };`);
+    check(a.front === 2 && a.clicks.length === 1 && a.clicks[0] < 700, 'one click per step, as the face centres (not a second later)', a);
     a = await page(`setShape('cube'); await __w(1500); goTo(0); await __w(1500); const q0 = Qt.slice(); knob(8, 0); await __w(1500); return { name: SH.name, front: frontFace() + 1, rolled: q0.some((v, k) => Math.abs(v - Qt[k]) > 0.1) };`);
     check(a.name === 'cube' && a.rolled && a.front !== 1, 'cube: the knob still ROLLS a quarter turn (unchanged)', a);
-    a = await page(`setShape('cuboct'); await __w(1500); goTo(0); await __w(1500); const seq = [frontFace() + 1]; for (let k = 0; k < 7; k++) { knob(8, 0); await __w(1300); seq.push(frontFace() + 1); } return { seq: seq.join(' ') };`);
+    a = await page(`setShape('cuboct'); await __w(1500); goTo(0); await __w(1500); const seq = [frontFace() + 1]; for (let k = 0; k < 7; k++) { knob(12, 0); await __w(1300); seq.push(frontFace() + 1); } return { seq: seq.join(' ') };`);
     check(a.seq === '1 2 3 4 5 6 1 2', `cuboctahedron: the knob walks the faces in order (${a.seq})`, a);
     await page(`setShape('rhombi'); await __w(800);`);
   },

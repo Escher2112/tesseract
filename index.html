@@ -525,12 +525,20 @@ function goHome() {
 }
 // the PowerMate (Chris 22:28): turning rolls the cube side to side, or top to bottom; a tap swaps which; a double tap picks the face.
 // A long press (over 0.6 s, no turning) = full screen on/off. About 8 clicks = one face.
-let knobAcc = 0, kHeld = false, kPress = 0, kTurned = false, kMode = 'side', kTapTimer = null;
+let knobAcc = 0, kHeld = false, kPress = 0, kTurned = false, kMode = 'side', kTapTimer = null, knobLastT = 0, knobLastStep = 0, knobFast = 0, knobPending = -1;
 function knob(t, b) {
   const now = performance.now();
   if (b && !kHeld) { kHeld = true; kPress = now; kTurned = false; }
-  if (t) { kTurned = true; knobAcc += t;
-    while (Math.abs(knobAcc) >= 8) { const d = knobAcc > 0 ? 1 : -1; if (SH.name !== 'cube') knobStep(d); else kMode === 'side' ? turn(d, 0) : turn(0, d); knobAcc -= d * 8; } }
+  if (t) { kTurned = true;
+    if (SH.name !== 'cube') {                                            // the face dial (22:24 Chris: "too slippery… settle into a pocket")
+      if (now - knobLastT > 350) knobAcc = 0;                            // a nudge that stopped short falls back into the pocket
+      knobLastT = now; knobAcc += t;
+      const need = now - knobLastStep > 450 ? 12 : 8;                    // climbing OUT of a resting face takes a firmer turn
+      if (Math.abs(knobAcc) >= need) { const d = knobAcc > 0 ? 1 : -1; knobStep(d); knobAcc = 0; knobLastStep = now; }
+    } else {
+      knobAcc += t;
+      while (Math.abs(knobAcc) >= 8) { const d = knobAcc > 0 ? 1 : -1; kMode === 'side' ? turn(d, 0) : turn(0, d); knobAcc -= d * 8; }
+    } }
   if (!b && kHeld) {
     kHeld = false; if (kTurned) return;
     if (now - kPress > 600) { toggleFull(); return; }
@@ -544,6 +552,7 @@ function knob(t, b) {
 function knobStep(d) {
   if (fullFace >= 0) return; const list = visible().slice().sort((a, b) => a - b); if (!list.length) return;
   const i = list.indexOf(cur()), n = list[((i < 0 ? 0 : i) + d + list.length) % list.length]; goTo(n);
+  knobFast = performance.now() + 900; knobPending = n;                 // travel firm + fast, and click the moment it's centred (see physics)
 }
 function toastUndo(msg, fn) {                                            // (Riven 5) a regroup never happens silently: it comes with an undo
   const el = document.getElementById('toast'); el.textContent = msg + '  '; const b = document.createElement('button'); b.textContent = 'undo';
@@ -1417,7 +1426,7 @@ function physics(dt, spinV, tiltV, pushing) {
   const held = sx !== 0 || sy !== 0 || sz !== 0;
   if (held) { cmdTarget = false; settled = false; }
   if (!cmdTarget) { const t = nearestTarget(Q, m.hyst); if (t.face !== tgtFace) { tgtFace = t.face; Qt = t.q; present(Qt); } else Qt = t.q; }
-  const I = Math.max(0.05, m.inertia), K = m.snap * (held ? m.notch : 1);
+  const I = Math.max(0.05, m.inertia), K = m.snap * (held ? m.notch : 1) * (!held && performance.now() < knobFast ? 4 : 1);   // a knob step travels 2× faster (√4)
   const zeta = 1 - 0.75 * Math.min(1, Math.max(0, m.bounce)), C = held ? m.damping : Math.max(m.damping * 0.5, 2 * zeta * Math.sqrt(K * I));
   const tau = [20 * m.sens * sx, 20 * m.sens * sy, 28 * m.sens * sz];   // twist a bit stronger: a quarter-turn detent is 45° away, a roll's is ~22°   // analog: tilt = over the top, twist = side · hand: see handInput
   const n = Math.max(1, Math.ceil(dt / 0.004)), h = dt / n;              // small substeps: stable at the stiffest settings and on a slow frame
@@ -1425,6 +1434,7 @@ function physics(dt, spinV, tiltV, pushing) {
   for (let s = 0; s < n; s++) { e = errVec(Q, Qt);
     for (let j = 0; j < 3; j++) W[j] += ((tau[j] + K * e[j] - C * W[j]) / I) * h;
     Q = qNorm(qMul(rotVecQ(V.mul(W, h)), Q)); }
+  if (knobPending >= 0 && frontOf(Q) === knobPending && Math.hypot(...e) < 0.026) { clickSound(); lockedFace = knobPending; knobPending = -1; }   // knob: tick the moment it's centred (≈1.5°), not after the wobble
   if (!held && Math.hypot(...e) < 0.004 && Math.hypot(...W) < 0.03) {   // locked onto a screen
     Q = Qt; W = [0, 0, 0]; cmdTarget = false;
     if (!settled) { settled = true; present(Q); const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } noteVisit(f); }   // (09:18: re-upright on EVERY settle; a 180° drag back onto the same face left it upside down)
