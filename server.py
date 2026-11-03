@@ -321,14 +321,12 @@ class H(BaseHTTPRequestHandler):
             self.send_response(204); self.end_headers(); return
         if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits clean
             a = q.get("a", [""])[0]                                    # step/enter/back the page understands; Spaceball/knob untouched.
-            if a == "spin":                                           # a wipe snaps face-to-face (horizontal) or in/out (vertical)
+            if a == "spin":                                           # a wipe steps face to face; it NEVER goes in or out
                 try: dx = float(q.get("dx", ["0"])[0]); dy = float(q.get("dy", ["0"])[0])
                 except ValueError: return self.deny(400)
-                if abs(dx) >= abs(dy) and (dx or dy): send({"k": "step", "d": 1 if dx > 0 else -1})
-                elif dy > 0: send({"k": "enter"})
-                elif dy < 0: send({"k": "back"})
-            elif a == "select": send({"k": "enter"})
-            elif a in ("enter", "back"): send({"k": a})
+                if dx: send({"k": "step", "d": 1 if dx > 0 else -1})  # 11-03: vertical wipes used to enter/back: too easy
+            elif a == "select": pass                                  # 11-03: a tap used to ENTER: the "too easily" bug; taps don't dive in
+            elif a in ("enter", "back"): send({"k": a})               # only from a deliberate press/hold (block-to-cube.py decide())
             else: return self.deny(400)
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
