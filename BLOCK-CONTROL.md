@@ -36,3 +36,8 @@ Pressure is a per-device property, auto-detected, feeding ONE unified value the 
 
 ## Status
 First pass: swipe→spin + tap→select on the sim. Force-press gestures are specced and wired on the cube side, dormant until a pressure device (the real block) feeds them. Trackpad-for-the-whole-OS (drive the macOS cursor) is a separate overlay mode needing Accessibility permission — noted, not built here.
+
+## TODO (Chris, 2026-11-02 23:37 — "close enough for tonight")
+- **Entering a face triggers too easily.** A left/right wipe meant to step faces has a small vertical component, so `dy>0 → enter` fires by accident. Fix: require a much stronger vertical-vs-horizontal ratio before enter/back (or gate enter behind force-press only), and add a horizontal deadzone so a clean side-wipe never reads as vertical.
+- **Do the force-touch properly** via the contact-area → pressure hot-swap (see "Pressure sourcing" above): force-press = enter, release = back out. That's the right model; the swipe-direction hack for enter/exit is a placeholder. Needs the radiusX/radiusY capture wired into the sim page + the iOS-exposes-varying-radius check.
+- Status tonight: swipe → step faces works ("close enough, not right"). enter/exit needs the two fixes above.

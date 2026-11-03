@@ -319,14 +319,16 @@ class H(BaseHTTPRequestHandler):
                 c = load_config(); p = c.get("prefs", {})
                 p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
             self.send_response(204); self.end_headers(); return
-        if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits the SAME
-            a = q.get("a", [""])[0]                                    # sb/sbb events the cube already understands; Spaceball/knob untouched.
-            if a == "spin":                                           # a wipe across the pad rolls the cube (dx->yaw, dy->pitch)
+        if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits clean
+            a = q.get("a", [""])[0]                                    # step/enter/back the page understands; Spaceball/knob untouched.
+            if a == "spin":                                           # a wipe snaps face-to-face (horizontal) or in/out (vertical)
                 try: dx = float(q.get("dx", ["0"])[0]); dy = float(q.get("dy", ["0"])[0])
                 except ValueError: return self.deny(400)
-                send({"k": "sb", "a": "r", "v": [int(dy * BLOCK_SPIN), int(dx * BLOCK_SPIN), 0]})
-            elif a in ("select", "enter", "back"):                    # select wired; enter/back await a pressure device (real block)
-                if a == "select": send({"k": "sbb", "m": 1})
+                if abs(dx) >= abs(dy) and (dx or dy): send({"k": "step", "d": 1 if dx > 0 else -1})
+                elif dy > 0: send({"k": "enter"})
+                elif dy < 0: send({"k": "back"})
+            elif a == "select": send({"k": "enter"})
+            elif a in ("enter", "back"): send({"k": a})
             else: return self.deny(400)
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None

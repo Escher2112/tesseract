@@ -365,6 +365,9 @@ es.onmessage = e => {
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
+  else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // FORK: Lightpad swipe -> next/prev face
+  else if (m.k === 'enter') enterFace(cur());                                // FORK: Lightpad up-swipe / tap -> into the face
+  else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // FORK: Lightpad down-swipe -> back out
   else if (m.k === 'knobstat') { const was = knobStat; knobStat = m.s; if (m.s === 'blocked' && was !== 'blocked') toast('PowerMate blocked: Tesseract needs Input Monitoring · ⚙ → Buttons → Open Settings'); if (help.classList.contains('on')) renderPrefs(); }
   else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
 };
