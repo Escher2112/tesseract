@@ -47,3 +47,23 @@ First pass: swipe→spin + tap→select on the sim. Force-press gestures are spe
 - **Now:** wipes only step face to face; taps do nothing. Going **in** takes a deliberate press held a moment (Riven: "a threshold plus a short dwell"): on the real block a `press` ≥ `ENTER_PRESSURE` (0.55) held ≥ `ENTER_DWELL_S` (0.35 s); on the iPad sim, which has no pressure, one finger held still (the classifier's `rest`, ~1 s). The same deliberate press/hold comes back **out**. Logic in `decide()` in `block-to-cube.py`; rules checked by `python3 -I test_block_glue.py` (9/9).
 - **Still to do:** tune `ENTER_PRESSURE` against his real hand on arrival day; the contact-area pressure hot-swap (the iPad "rest" stand-in covers the sim meanwhile).
 - ⚠ This branch is **local only**: the repo (Escher2112/tesseract) is PUBLIC and these notes quote Chris; push only with his OK (or to a private remote).
+
+## ✓ 2026-11-03 evening: calling corners + the visit tether, LIVE end to end (Chris: "i love it!")
+Designed with Chris (roli-lightpad `IDEAS.md` §H). Proven live against the running iPad sim with an isolated test cube:
+face 3 marked "needs you" → a magenta corner lit on the pad → a tap on it → the cube jumped into face 3 full screen and the pad
+showed the white landing strip home → a tap on the white corner → back on the cube at face 1; face 3's corner returned (it still
+needed him: looking never clears a face, only real progress does).
+- **Page** (`index.html`): `padReport()` posts the view (cube/face + which face) and the waiting faces (with his group colours) to
+  `/blockview` every 0.7 s when it changes; handlers `jump` → the cube's own `jumpTo()`, `goback` → its own `goBack()` (same history
+  as the Spaceball's back).
+- **Server** (`server.py`): `POST /blockview`, `GET /blockstate`, `/blockin a=jump&f=N` and `a=goback`. All behind the run's key.
+- **Glue** (`block-to-cube.py`): polls `/blockstate`, writes the pad's `tesseract.json` (stable corners, max four, longest-waiting
+  first; colour = his Tesseract group colour, or his lane for ungrouped faces; never white); runs the visit; routes touches by
+  mode (cube: wipes step, a deliberate hold dives in; face: touches are left to that face's Lyra); hands the pad to the visited
+  face's session via `bin/lightpad claim --take` when the presence hook has recorded it (`faces.json`). Rules: `python3 -I test_block_glue.py` (26/26).
+- **Run the test cube** (never his real sessions): `TDT_HOME=~/.config/3d-terminal-blocktest python3 -I server.py --port 8905`,
+  open the printed URL, then `KEY=<k from the URL> CUBE=http://127.0.0.1:8905 SIM_HOME=~/.lyra-lightpad-sim python3 -I block-to-cube.py`.
+  `node tests/maths.test.mjs` = 176/176 (⛔ never `tests/drive.mjs` on the M32: it launches headless Chrome).
+- **Open:** (1) putting this into his REAL Tesseract app is his call (this is the fork; the branch is local-only, the repo is public);
+  (2) trackpad mode inside a face (three fingers, tap twice; needs the Accessibility permission he grants); (3) a pad gesture to back
+  out of a face to the cube was left open (he moved to the trackpad idea instead).
