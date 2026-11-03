@@ -21,6 +21,7 @@ HOME3 = os.path.expanduser(os.environ.get("TDT_HOME") or "~/.config/3d-terminal"
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8781   # the Mac app uses 8782
 KEY = secrets.token_urlsafe(18); FACES = 18   # 2026-10-28 shapes: up to 18 sessions (rhombicuboctahedron); started only when needed
 HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+BLOCK_SPIN = 400  # fork: how hard a normalized pad-swipe (-1..1) rolls the cube; tune to taste
 listeners, listeners_lock = [], threading.Lock()
 def send(obj):
     msg = json.dumps(obj)
@@ -317,6 +318,16 @@ class H(BaseHTTPRequestHandler):
                 except Exception: return self.deny(400)
                 c = load_config(); p = c.get("prefs", {})
                 p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
+            self.send_response(204); self.end_headers(); return
+        if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits the SAME
+            a = q.get("a", [""])[0]                                    # sb/sbb events the cube already understands; Spaceball/knob untouched.
+            if a == "spin":                                           # a wipe across the pad rolls the cube (dx->yaw, dy->pitch)
+                try: dx = float(q.get("dx", ["0"])[0]); dy = float(q.get("dy", ["0"])[0])
+                except ValueError: return self.deny(400)
+                send({"k": "sb", "a": "r", "v": [int(dy * BLOCK_SPIN), int(dx * BLOCK_SPIN), 0]})
+            elif a in ("select", "enter", "back"):                    # select wired; enter/back await a pressure device (real block)
+                if a == "select": send({"k": "sbb", "m": 1})
+            else: return self.deny(400)
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
         except ValueError: s = None
