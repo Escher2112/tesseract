@@ -122,6 +122,9 @@ def set_attn(face, state, reason):
         msg = dict(k="attn", f=face, **a)
     send(msg)
 shells = [Shell(i) for i in range(FACES)]
+# FORK (2026-11-03): what the cube is showing + who is waiting, reported by the page for the Lightpad glue (block-to-cube.py),
+# which turns it into the pad's calling corners and the visit landing strip.
+pad_view, pad_view_lock = {"mode": "cube", "face": None, "waiting": [], "at": 0}, threading.Lock()
 def program_under(pid, names):                                       # first process below this shell whose name is in names → (pid, name)
     try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
     except Exception: return None
@@ -282,6 +285,11 @@ class H(BaseHTTPRequestHandler):
             if real.startswith(root + os.sep) and os.path.isfile(real) and ext in (".js", ".css"):
                 return self.file(real, "text/javascript" if ext == ".js" else "text/css")
             return self.deny(404)
+        if u.path == "/blockstate":                                    # FORK: the Lightpad glue polls what the cube shows
+            if not self.guard(q): return self.deny()
+            with pad_view_lock: body = json.dumps(dict(pad_view, now=int(time.time() * 1000))).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body); return
         if u.path != "/stream": return self.deny(404)
         if not self.guard(q): return self.deny()
         self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.send_header("Cache-Control", "no-cache")
@@ -319,6 +327,15 @@ class H(BaseHTTPRequestHandler):
                 c = load_config(); p = c.get("prefs", {})
                 p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
             self.send_response(204); self.end_headers(); return
+        if u.path == "/blockview":                                    # FORK: the page reports its view + waiting faces
+            try: v = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}")
+            except Exception: return self.deny(400)
+            with pad_view_lock:
+                pad_view.update(mode="face" if v.get("mode") == "face" else "cube",
+                                face=v.get("face") if isinstance(v.get("face"), int) else None,
+                                waiting=[w for w in (v.get("waiting") or []) if isinstance(w, dict) and isinstance(w.get("f"), int)][:FACES],
+                                at=int(time.time() * 1000))
+            self.send_response(204); self.end_headers(); return
         if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits clean
             a = q.get("a", [""])[0]                                    # step/enter/back the page understands; Spaceball/knob untouched.
             if a == "spin":                                           # a wipe steps face to face; it NEVER goes in or out
@@ -327,6 +344,12 @@ class H(BaseHTTPRequestHandler):
                 if dx: send({"k": "step", "d": 1 if dx > 0 else -1})  # 11-03: vertical wipes used to enter/back: too easy
             elif a == "select": pass                                  # 11-03: a tap used to ENTER: the "too easily" bug; taps don't dive in
             elif a in ("enter", "back"): send({"k": a})               # only from a deliberate press/hold (block-to-cube.py decide())
+            elif a == "jump":                                         # a tap on a calling corner: roll to that face and straight in
+                try: f = int(q.get("f", ["-1"])[0])
+                except ValueError: return self.deny(400)
+                if not 0 <= f < FACES: return self.deny(400)
+                send({"k": "jump", "f": f})
+            elif a == "goback": send({"k": "goback"})                 # the white return corner: exactly back where he was
             else: return self.deny(400)
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None

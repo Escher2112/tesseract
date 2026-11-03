@@ -368,6 +368,8 @@ es.onmessage = e => {
   else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // FORK: Lightpad swipe -> next/prev face
   else if (m.k === 'enter') enterFace(cur());                                // FORK: Lightpad up-swipe / tap -> into the face
   else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // FORK: Lightpad down-swipe -> back out
+  else if (m.k === 'jump') { if (Number.isInteger(m.f) && faces[m.f]) jumpTo(m.f); }   // FORK: tap a calling corner on the pad
+  else if (m.k === 'goback') goBack();                                       // FORK: the pad's white return corner
   else if (m.k === 'knobstat') { const was = knobStat; knobStat = m.s; if (m.s === 'blocked' && was !== 'blocked') toast('PowerMate blocked: Tesseract needs Input Monitoring · ⚙ → Buttons → Open Settings'); if (help.classList.contains('on')) renderPrefs(); }
   else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
 };
@@ -869,6 +871,18 @@ function jumpNext() {                                                    // olde
   if (w.length) jumpTo(w[0]); else toast(`nothing is waiting for you  ·  hold ${btnLabel(prefs.buttons.jump)} for all your sessions`);   // 14:21: falling back to history back was confusing now C does that
 }
 function goBack() { histGo(-1); }
+// FORK (2026-11-03): tell the Lightpad what the cube shows and who is waiting; block-to-cube.py turns it into the pad's calling
+// corners (a face's group colour, or none) and the visit landing strip. Facts only: the pad's rules live in the glue.
+let padLast = '', padAt = 0;
+function padReport() {
+  const mode = fullFace >= 0 ? 'face' : 'cube', face = fullFace >= 0 ? fullFace : frontFace();
+  const waitingNow = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since)
+    .map(i => ({ f: i, since: att[i].since, r: att[i].r, colour: prefs.colors[i] ? prefs.palette[prefs.colors[i] - 1] : null }));
+  const body = JSON.stringify({ mode, face, waiting: waitingNow }), now = performance.now();
+  if (body === padLast && now - padAt < 3000) return;
+  padLast = body; padAt = now; post('/blockview', body).catch(() => {});
+}
+setInterval(padReport, 700);
 function goForward() { histGo(1); }
 
 // ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
