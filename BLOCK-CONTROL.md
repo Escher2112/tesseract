@@ -27,5 +27,12 @@ Tesseract already takes an **abstract input protocol**, not raw devices: `server
 - `block-to-cube.py`: a glue process — reads the Lightpad sim's gestures (`bin/lightpad wait-event --sim`), maps swipes → `/blockin spin`, taps → `/blockin select`, and (on real hardware later) force-press → `/blockin enter`.
 - `run-block-cube.sh`: one command — starts the forked cube on an alt port and the glue, prints the URL to open.
 
+## Pressure sourcing — HOT-SWAP by device (Chris, 2026-11-02 23:26)
+Pressure is a per-device property, auto-detected, feeding ONE unified value the gesture code consumes:
+- **iPad / touchscreen connected** → derive pressure from **finger contact area** (capture `radiusX/radiusY`, calibrate to the observed min/max range — the sim page already has the "no guessed area range" logic). Small area = light, large area = force-press.
+- **Real Lightpad block connected** → use the **hardware force channel** directly.
+- The device declares which it is (extends the existing `SimDevice`/`RealDevice` split in roli-lightpad `bridge/`). Force-press gestures (enter/exit) read the unified value and work identically on either. Canonical home for this: roli-lightpad's pressure/calibration handling; mirrored here because the cube's force-press depends on it.
+- Open check: whether iOS Safari exposes a *varying* finger radius on Chris's iPad. If yes, the full force-press language is testable with no hardware.
+
 ## Status
 First pass: swipe→spin + tap→select on the sim. Force-press gestures are specced and wired on the cube side, dormant until a pressure device (the real block) feeds them. Trackpad-for-the-whole-OS (drive the macOS cursor) is a separate overlay mode needing Accessibility permission — noted, not built here.
