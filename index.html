@@ -368,6 +368,7 @@ es.onmessage = e => {
   // the Lightpad Block (padglue.py, 2026-11-03): only ever sent while a pad bridge is live
   else if (m.k === 'pad') { const was = padOn; padOn = !!m.on; padLast = ''; if (!m.quiet && was !== padOn) toast(padOn ? `Lightpad connected (${m.dev === 'sim' ? 'the iPad' : 'the block'})` : 'Lightpad gone · the cube carries on without it'); }
   else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // a wipe on the pad -> next/prev face
+  else if (m.k === 'pdrag') { if (fullFace < 0 && !zooming) { if (m.end) release((m.vx || 0) * PAD_PX, (m.vy || 0) * PAD_PX); else rotateBy((m.dx || 0) * PAD_PX, (m.dy || 0) * PAD_PX); } }   // a finger dragging the cube (the mouse's own drag)
   else if (m.k === 'roll') { if (fullFace < 0) { turn(m.dy | 0, m.dp | 0); select(frontFace()); } }   // a wipe on the pad rolls the cube, all four ways
   else if (m.k === 'enter') enterFace(cur());                                // a deliberate held press -> into the face
   else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // the same again -> back out
@@ -987,7 +988,10 @@ function offer(now) {
 // coasts on the motion springs, settling on the nearest screen (classic cube: snaps); a plain click = go to that face and type there;
 // a double-click = bring it to the front and zoom in. Full screen: right-click = back out. Trackpad: two-finger swipe spins it, pinch
 // out = zoom into the face in front, pinch in = back out. (Text selection on the solid gave way to the drag; full screen keeps it.)
+// 2026-11-03 Chris: drag the cube with a finger on the Lightpad, like rolling it by hand. One pad width = PAD_PX mouse pixels
+// (x DRAGK = 180 degrees: a full wipe across rolls the solid half way round). Tune on his word.
 const DRAGK = 0.35;                                                      // degrees per pixel of drag
+const PAD_PX = 180 / DRAGK;
 const scene = document.getElementById('scene'); let drag = null, wheelT = 0, pinchSum = 0, pinchT = 0;
 // 09:18 Chris: "the faces that are upside down — how can the user re-orient them, since they don't have 3D spin in mouse mode?" →
 // Option-drag turns the solid around its centre like a dial (the angle your pointer sweeps around the middle of the window), the

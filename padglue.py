@@ -61,15 +61,18 @@ def decide(g, inside):
     return None, inside                          # taps, light presses, palms: never dive in
 
 
-def route(g, view):
-    """What a pad gesture does given the cube's view. Corner taps are handled by on_corner_tap."""
+def route(g, view, dragging=False):
+    """What a pad gesture does given the cube's view. Corner taps are handled by on_corner_tap.
+    dragging: the live finger feed is on, so a finished wipe has already moved the cube (no extra quarter-roll)."""
     if (view or {}).get("mode") == "face":
         # inside a face the touch belongs to that face's session, EXCEPT the same deliberate hold that took him in: it brings him back
         # out (his design, 2026-11-02: "force press = into the face… force press again = back out"; switched on 2026-11-03 20:50)
         action, _ = decide(g, True)
         return "back" if action == "back" else None
     action, _ = decide(g, False)
-    return action                                # cube view: wipes step, a deliberate hold dives in
+    if dragging and isinstance(action, tuple) and action[0] == "spin":
+        return None                              # the drag already rolled it, live
+    return action                                # cube view: wipes roll, a deliberate hold dives in
 
 
 def calls_for(view, corners):
@@ -151,6 +154,79 @@ def cube_message(action):
     return None
 
 
+# ---------------------------------------------------------------- dragging the cube with a finger (Chris 2026-11-03 20:58)
+# "when I drag my finger, I'm actually pulling the cube around… like the space ball… like I'm touching it and rolling it with my
+# finger." The bridge's touch_stream gives every raw reading live; one finger that has moved past DRAG_DEAD drags the solid through
+# the page's own mouse-drag code (rotateBy), and letting go hands its speed to the page's release (coast, then click onto the nearest
+# face). A finger held still (the hold that goes into a face) never moves the cube; a second finger ends the drag.
+DRAG_DEAD = 0.04            # pad widths a finger must travel before it drags (a still finger and a tap never move the cube)
+DRAG_STOPPED_S = 0.08       # lifted after holding still this long: no fling (same rule as the mouse)
+
+
+class DragTracker:
+    """Raw touch readings -> page messages {"k":"pdrag","dx","dy"} (pad widths) and {"k":"pdrag","end":True,"vx","vy"} (per ms)."""
+
+    def __init__(self):
+        self.fingers = {}       # (block, i) -> dict(x0, y0, lx, ly, lt, moved, vx, vy)
+        self.multi = False      # more than one finger since the last all-up: no dragging until every finger lifts
+
+    def reset(self):
+        self.fingers, self.multi = {}, False
+
+    def feed(self, r):
+        key, kind = (r.get("block", 0), r.get("i")), r.get("kind")
+        x, y, t = float(r.get("x", 0.0)), float(r.get("y", 0.0)), float(r.get("t", 0.0))
+        out = []
+        if kind == "start":
+            self.fingers[key] = dict(x0=x, y0=y, lx=x, ly=y, lt=t, moved=False, vx=0.0, vy=0.0)
+            if len(self.fingers) > 1 and not self.multi:
+                self.multi = True
+                if any(f["moved"] for f in self.fingers.values()):
+                    out.append({"k": "pdrag", "end": True, "vx": 0.0, "vy": 0.0})
+            return out
+        f = self.fingers.get(key)
+        if f is None:
+            return out
+        if kind == "move":
+            if self.multi:
+                return out
+            if not f["moved"] and ((x - f["x0"]) ** 2 + (y - f["y0"]) ** 2) ** 0.5 < DRAG_DEAD:
+                return out
+            f["moved"] = True
+            dx, dy, dt = x - f["lx"], y - f["ly"], max(1.0, (t - f["lt"]) * 1000.0)
+            f["vx"], f["vy"] = 0.6 * f["vx"] + 0.4 * dx / dt, 0.6 * f["vy"] + 0.4 * dy / dt
+            f["lx"], f["ly"], f["lt"] = x, y, t
+            if dx or dy:
+                out.append({"k": "pdrag", "dx": round(dx, 5), "dy": round(dy, 5)})
+            return out
+        if kind == "end":
+            self.fingers.pop(key, None)
+            if f["moved"] and not self.multi:
+                fling = (t - f["lt"]) <= DRAG_STOPPED_S
+                out.append({"k": "pdrag", "end": True, "vx": round(f["vx"], 6) if fling else 0.0, "vy": round(f["vy"], 6) if fling else 0.0})
+            if not self.fingers:
+                self.multi = False
+        return out
+
+
+def open_touch_stream(home, timeout=3.0):
+    """A socket on the bridge's live touch feed, or None (an older bridge without touch_stream)."""
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(timeout)
+    try:
+        c.connect(os.path.join(home, "sock"))
+        c.sendall(b'{"command": "touch_stream"}\n')
+        f = c.makefile("r")
+        first = json.loads(f.readline() or "{}")
+        if first.get("stream") != "touches":
+            c.close(); return None
+        c.settimeout(12.0)                        # the bridge pings every 5 s
+        return c, f
+    except (OSError, ValueError):
+        c.close()
+        return None
+
+
 # ---------------------------------------------------------------- finding a pad
 
 def pad_homes():
@@ -208,6 +284,8 @@ class PadLink:
         self.lock = threading.Lock()
         self._events = None                       # open events.jsonl, positioned at its end when the pad appeared
         self._events_ino = None
+        self.drag = DragTracker()
+        self.dragging = False                     # the live finger feed is connected
 
     # -- called by server.py
     def set_view(self, view):
@@ -220,7 +298,49 @@ class PadLink:
 
     def start(self):
         threading.Thread(target=self._run, daemon=True, name="padglue").start()
+        threading.Thread(target=self._drag_run, daemon=True, name="padglue-drag").start()
         return self
+
+    def on_reading(self, r):
+        """One live touch reading. Drags only in the cube view; inside a face the touch belongs to that session."""
+        with self.lock:
+            mode = (self.view or {}).get("mode")
+        if mode == "face":
+            self.drag.reset()
+            return []
+        out = self.drag.feed(r)
+        for msg in out:
+            self.send(msg)
+        return out
+
+    def _drag_run(self):
+        while True:
+            home = self.home
+            if home is None:
+                time.sleep(0.5); continue
+            link = open_touch_stream(home)
+            if link is None:
+                time.sleep(2.0); continue         # older bridge: wipes still roll one face at a time
+            c, f = link
+            self.dragging = True
+            self._log("live finger feed on: the pad drags the cube")
+            try:
+                while self.home == home:
+                    line = f.readline()
+                    if not line:
+                        break
+                    try: r = json.loads(line)
+                    except ValueError: continue
+                    if isinstance(r, dict) and "kind" in r:
+                        self.on_reading(r)
+            except OSError:
+                pass
+            finally:
+                self.dragging = False
+                self.drag.reset()
+                try: c.close()
+                except OSError: pass
+            time.sleep(0.5)
 
     # -- internals
     def _log(self, text):
@@ -290,7 +410,7 @@ class PadLink:
                 self._log(f"corner tap -> {msg}")
                 self._hand_pad_to(action[1] if action[0] == "jump" else g.get("face"))
             return msg
-        msg = cube_message(route(g, view))
+        msg = cube_message(route(g, view, dragging=self.dragging))
         if msg:
             self.send(msg)
             self._log(f"{g.get('gesture')} -> {msg}")

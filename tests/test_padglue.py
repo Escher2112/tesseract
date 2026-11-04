@@ -69,6 +69,26 @@ more3 = [
     ("... unless asked with TDT_PAD=1",              glue.enabled({"TDT_HOME": "/tmp/x", "TDT_PAD": "1"}), True),
 ]
 
+# ------------------------------------------------------------ dragging the cube with a finger
+def run(readings):
+    tr = glue.DragTracker(); out = []
+    for r in readings: out += tr.feed(r)
+    return out
+R = lambda kind, x, y, t, i=0, b=0: {"kind": kind, "x": x, "y": y, "t": t, "i": i, "block": b}
+still = run([R("start", .5, .5, 0), R("move", .51, .505, .3), R("move", .505, .51, .9), R("end", .505, .51, 1.1)])
+drag = run([R("start", .2, .5, 0), R("move", .3, .5, .02), R("move", .4, .5, .04), R("end", .45, .5, .06)])
+stopped = run([R("start", .2, .5, 0), R("move", .4, .5, .05), R("end", .4, .5, .5)])
+two = run([R("start", .2, .5, 0), R("move", .4, .5, .05), R("start", .7, .5, .06, i=1), R("move", .5, .5, .07), R("end", .5, .5, .1), R("end", .7, .5, .1, i=1)])
+more3 += [
+    ("a still finger (the hold that goes in) never moves the cube", still, []),
+    ("a drag moves it with the finger, live",        [m["dx"] for m in drag if "dx" in m], [0.1, 0.1]),
+    ("letting go mid-swipe flings it",               drag[-1]["end"] and drag[-1]["vx"] > 0, True),
+    ("stopping before letting go doesn't fling",     stopped[-1], {"k": "pdrag", "end": True, "vx": 0.0, "vy": 0.0}),
+    ("a second finger ends the drag and stops it",   [m for m in two if m.get("end")], [{"k": "pdrag", "end": True, "vx": 0.0, "vy": 0.0}]),
+    ("a dragged wipe doesn't ALSO roll a quarter",   glue.route({"gesture": "stroke", "direction": "left to right", "distance": 1}, {"mode": "cube"}, dragging=True), None),
+    ("a hold still dives in while dragging is on",   glue.route({"gesture": "rest", "fingers": 1, "duration": 1.05}, {"mode": "cube"}, dragging=True), "enter"),
+]
+
 # ------------------------------------------------------------ the real thread against a fake bridge
 def fake_bridge(home):
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); srv.bind(os.path.join(home, "sock")); srv.listen(4)
