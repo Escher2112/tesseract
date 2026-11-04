@@ -19,7 +19,7 @@ While a pad is live, both directions:
 
 Turn it off: TDT_PAD=0. A test copy (TDT_HOME set) leaves it off unless TDT_PAD=1, so two cubes never fight over a pad.
 Rules checked by: python3 -I test_block_glue.py"""
-import json, os, socket, subprocess, threading, time
+import json, math, os, socket, subprocess, threading, time
 
 DETECT_S = 2.0              # how often to look for a pad bridge
 SIGNAL_S = 0.5              # how often the pad's calling-corner file is rewritten (the bridge treats >10 s old as stale)
@@ -161,6 +161,11 @@ def cube_message(action):
 # face). A finger held still (the hold that goes into a face) never moves the cube; a second finger ends the drag.
 DRAG_DEAD = 0.04            # pad widths a finger must travel before it drags (a still finger and a tap never move the cube)
 DRAG_STOPPED_S = 0.08       # lifted after holding still this long: no fling (same rule as the mouse)
+# Chris 22:14 (and his 11-02 design): "two fingers… spin the cube about the axis of the face I'm looking at." Two fingers down: the
+# turn of the line between them twists the solid about your line of sight, finger-locked (1 degree of fingers = 1 degree of cube),
+# through the page's own twist glide; letting go clicks it into the nearest quarter. Three or more fingers do nothing here (kept for
+# the trackpad switch).
+TWIST_DEAD_DEG = 6.0        # the fingers must turn this far before the cube twists (a two-finger tap never twists it)
 
 
 class DragTracker:
@@ -169,9 +174,25 @@ class DragTracker:
     def __init__(self):
         self.fingers = {}       # (block, i) -> dict(x0, y0, lx, ly, lt, moved, vx, vy)
         self.multi = False      # more than one finger since the last all-up: no dragging until every finger lifts
+        self.twist = None       # two fingers down: dict(a0, last, on)
 
     def reset(self):
-        self.fingers, self.multi = {}, False
+        self.fingers, self.multi, self.twist = {}, False, None
+
+    def _angle(self):
+        (a, b) = [(f["lx"] + blk, f["ly"]) for (blk, _), f in sorted(self.fingers.items())]   # pads side by side: pad 2 sits at x+1
+        return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))   # y runs down the pad: clockwise fingers = a growing angle
+
+    def _twist_changed(self):
+        """Start a twist when exactly two fingers are down; finish it (settle to a quarter) when that stops being true."""
+        out = []
+        if len(self.fingers) == 2 and self.twist is None:
+            a = self._angle(); self.twist = dict(a0=a, last=a, on=False)
+        elif len(self.fingers) != 2 and self.twist is not None:
+            if self.twist["on"]:
+                out.append({"k": "ptwist", "end": True})
+            self.twist = None
+        return out
 
     def feed(self, r):
         key, kind = (r.get("block", 0), r.get("i")), r.get("kind")
@@ -183,11 +204,21 @@ class DragTracker:
                 self.multi = True
                 if any(f["moved"] for f in self.fingers.values()):
                     out.append({"k": "pdrag", "end": True, "vx": 0.0, "vy": 0.0})
+            out += self._twist_changed()
             return out
         f = self.fingers.get(key)
         if f is None:
             return out
         if kind == "move":
+            if self.twist is not None:
+                f["lx"], f["ly"], f["lt"] = x, y, t
+                a = self._angle(); d = (a - self.twist["last"] + 180) % 360 - 180
+                if not self.twist["on"] and abs((a - self.twist["a0"] + 180) % 360 - 180) >= TWIST_DEAD_DEG:
+                    self.twist["on"] = True; d = (a - self.twist["a0"] + 180) % 360 - 180
+                if self.twist["on"] and d:
+                    out.append({"k": "ptwist", "deg": round(d, 3)})
+                self.twist["last"] = a
+                return out
             if self.multi:
                 return out
             if not f["moved"] and ((x - f["x0"]) ** 2 + (y - f["y0"]) ** 2) ** 0.5 < DRAG_DEAD:
@@ -201,6 +232,7 @@ class DragTracker:
             return out
         if kind == "end":
             self.fingers.pop(key, None)
+            out += self._twist_changed()
             if f["moved"] and not self.multi:
                 fling = (t - f["lt"]) <= DRAG_STOPPED_S
                 out.append({"k": "pdrag", "end": True, "vx": round(f["vx"], 6) if fling else 0.0, "vy": round(f["vy"], 6) if fling else 0.0})

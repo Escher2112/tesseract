@@ -79,7 +79,26 @@ still = run([R("start", .5, .5, 0), R("move", .51, .505, .3), R("move", .505, .5
 drag = run([R("start", .2, .5, 0), R("move", .3, .5, .02), R("move", .4, .5, .04), R("end", .45, .5, .06)])
 stopped = run([R("start", .2, .5, 0), R("move", .4, .5, .05), R("end", .4, .5, .5)])
 two = run([R("start", .2, .5, 0), R("move", .4, .5, .05), R("start", .7, .5, .06, i=1), R("move", .5, .5, .07), R("end", .5, .5, .1), R("end", .7, .5, .1, i=1)])
+import math as _m
+def ring(deg, t, cx=.5, cy=.5, r=.2):           # two fingers opposite each other on a circle, turned by deg (clockwise on the pad)
+    a = _m.radians(deg); return [(cx - r * _m.cos(a), cy - r * _m.sin(a)), (cx + r * _m.cos(a), cy + r * _m.sin(a))]
+def twist_run(degs):
+    seq = []; (a, b) = ring(0, 0)
+    seq += [R("start", *a, 0, i=0), R("start", *b, .01, i=1)]
+    for k, d in enumerate(degs):
+        (a, b) = ring(d, .02 * (k + 1)); seq += [R("move", *a, .02 * (k + 1), i=0), R("move", *b, .02 * (k + 1) + .005, i=1)]
+    seq += [R("end", *a, 1, i=0), R("end", *b, 1, i=1)]
+    return run(seq)
+tw_out = twist_run([5, 10, 20, 30])
+tw_small = twist_run([2, 3, 4])
 more3 += [
+    ("two fingers turning clockwise twist the cube clockwise", round(sum(m.get("deg", 0) for m in tw_out)), 30),
+    ("the twist ends when the fingers lift (it settles)", tw_out[-1], {"k": "ptwist", "end": True}),
+    ("a twist never drags the cube too",             [m for m in tw_out if m["k"] == "pdrag"], []),
+    ("a small wobble of two fingers doesn't twist",  tw_small, []),
+    ("anticlockwise goes the other way",             round(sum(m.get("deg", 0) for m in twist_run([-10, -25]))), -25),
+    ("three fingers never twist",                    [m for m in run([R("start", .3, .5, 0, i=0), R("start", .7, .5, 0, i=1), R("start", .5, .2, 0, i=2),
+                                                         R("move", .3, .7, .05, i=0), R("move", .7, .3, .05, i=1)]) if m["k"] == "ptwist"], []),
     ("a still finger (the hold that goes in) never moves the cube", still, []),
     ("a drag moves it with the finger, live",        [m["dx"] for m in drag if "dx" in m], [0.1, 0.1]),
     ("letting go mid-swipe flings it",               drag[-1]["end"] and drag[-1]["vx"] > 0, True),

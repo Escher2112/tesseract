@@ -369,6 +369,7 @@ es.onmessage = e => {
   else if (m.k === 'pad') { const was = padOn; padOn = !!m.on; padLast = ''; if (!m.quiet && was !== padOn) toast(padOn ? `Lightpad connected (${m.dev === 'sim' ? 'the iPad' : 'the block'})` : 'Lightpad gone · the cube carries on without it'); }
   else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // a wipe on the pad -> next/prev face
   else if (m.k === 'pdrag') { if (fullFace < 0 && !zooming) { if (m.end) release((m.vx || 0) * PAD_PX, (m.vy || 0) * PAD_PX); else rotateBy((m.dx || 0) * PAD_PX, (m.dy || 0) * PAD_PX); } }   // a finger dragging the cube (the mouse's own drag)
+  else if (m.k === 'ptwist') { if (fullFace < 0 && !zooming) { if (m.end) { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); } else tw.pend += m.deg || 0; } }   // two fingers twisting: spin about your line of sight (the right-button twist's glide), then click to a quarter
   else if (m.k === 'roll') { if (fullFace < 0) { turn(m.dy | 0, m.dp | 0); select(frontFace()); } }   // a wipe on the pad rolls the cube, all four ways
   else if (m.k === 'enter') enterFace(cur());                                // a deliberate held press -> into the face
   else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // the same again -> back out

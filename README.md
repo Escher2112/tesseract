@@ -39,7 +39,8 @@ give your user read/write on `/dev/hidraw*` with a udev rule. The Linux path is 
 If a Lightpad bridge is running (it answers on `~/.lyra-lightpad/sock` for the real block, or `~/.lyra-lightpad-sim/sock` for an
 iPad standing in for one), Tesseract notices it within a couple of seconds and the pad joins in. Nothing else changes: the
 Spaceball, PowerMate, keyboard and mouse work exactly as before, and with no pad `padglue.py` does nothing at all.
-- On the cube: wipe across the pad = next / previous face · a firm press held a moment (one still finger on the iPad) = into the face.
+- On the cube: drag one finger and the cube rolls under it (let go and it clicks onto the nearest face) · two fingers twisting spin it
+  around the face you're looking at · a firm press held a moment (one still finger on the iPad) = into the face.
 - A face that needs you lights a corner of the pad in its colour; tap it to jump straight in. While you're there the pad shows a
   white strip back home; tap the white corner to go back where you were.
 - Inside a face, touches belong to the session running there; the same held press (one still finger on the iPad) brings you back out.
