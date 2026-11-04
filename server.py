@@ -21,7 +21,6 @@ HOME3 = os.path.expanduser(os.environ.get("TDT_HOME") or "~/.config/3d-terminal"
 PORT = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else 8781   # the Mac app uses 8782
 KEY = secrets.token_urlsafe(18); FACES = 18   # 2026-10-28 shapes: up to 18 sessions (rhombicuboctahedron); started only when needed
 HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
-BLOCK_SPIN = 400  # fork: how hard a normalized pad-swipe (-1..1) rolls the cube; tune to taste
 listeners, listeners_lock = [], threading.Lock()
 def send(obj):
     msg = json.dumps(obj)
@@ -122,9 +121,9 @@ def set_attn(face, state, reason):
         msg = dict(k="attn", f=face, **a)
     send(msg)
 shells = [Shell(i) for i in range(FACES)]
-# FORK (2026-11-03): what the cube is showing + who is waiting, reported by the page for the Lightpad glue (block-to-cube.py),
-# which turns it into the pad's calling corners and the visit landing strip.
-pad_view, pad_view_lock = {"mode": "cube", "face": None, "waiting": [], "at": 0}, threading.Lock()
+# 2026-11-03 the Lightpad Block (padglue.py, optional): it sleeps until a pad bridge answers, then the page reports its view + waiting
+# faces (POST /blockview) and the pad's calling corners / wipes / corner taps come back as the page's own step, enter, jump and goBack.
+pad = None
 def program_under(pid, names):                                       # first process below this shell whose name is in names → (pid, name)
     try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
     except Exception: return None
@@ -285,11 +284,6 @@ class H(BaseHTTPRequestHandler):
             if real.startswith(root + os.sep) and os.path.isfile(real) and ext in (".js", ".css"):
                 return self.file(real, "text/javascript" if ext == ".js" else "text/css")
             return self.deny(404)
-        if u.path == "/blockstate":                                    # FORK: the Lightpad glue polls what the cube shows
-            if not self.guard(q): return self.deny()
-            with pad_view_lock: body = json.dumps(dict(pad_view, now=int(time.time() * 1000))).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body); return
         if u.path != "/stream": return self.deny(404)
         if not self.guard(q): return self.deny()
         self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.send_header("Cache-Control", "no-cache")
@@ -298,6 +292,7 @@ class H(BaseHTTPRequestHandler):
             if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
         mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})})); mine.put(json.dumps({"k": "knobfree", "free": knob["free"], "quiet": True})); mine.put(json.dumps({"k": "knobstat", "s": knob["status"], "quiet": True}))
+        if pad is not None: mine.put(json.dumps(pad.hello()))          # is a Lightpad here (the page reports to it only if so)
         if sb.get("dev"): mine.put(json.dumps(sb["dev"]))                # which 3D mouse this is (the page shows its own button labels)
         with attn_lock:
             for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))
@@ -327,30 +322,13 @@ class H(BaseHTTPRequestHandler):
                 c = load_config(); p = c.get("prefs", {})
                 p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
             self.send_response(204); self.end_headers(); return
-        if u.path == "/blockview":                                    # FORK: the page reports its view + waiting faces
+        if u.path == "/blockview":                                    # the page reports its view + waiting faces for the Lightpad
             try: v = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}")
             except Exception: return self.deny(400)
-            with pad_view_lock:
-                pad_view.update(mode="face" if v.get("mode") == "face" else "cube",
-                                face=v.get("face") if isinstance(v.get("face"), int) else None,
-                                waiting=[w for w in (v.get("waiting") or []) if isinstance(w, dict) and isinstance(w.get("f"), int)][:FACES],
-                                at=int(time.time() * 1000))
-            self.send_response(204); self.end_headers(); return
-        if u.path == "/blockin":                                      # FORK: the Lightpad block as a cube trackpad. Emits clean
-            a = q.get("a", [""])[0]                                    # step/enter/back the page understands; Spaceball/knob untouched.
-            if a == "spin":                                           # a wipe steps face to face; it NEVER goes in or out
-                try: dx = float(q.get("dx", ["0"])[0]); dy = float(q.get("dy", ["0"])[0])
-                except ValueError: return self.deny(400)
-                if dx: send({"k": "step", "d": 1 if dx > 0 else -1})  # 11-03: vertical wipes used to enter/back: too easy
-            elif a == "select": pass                                  # 11-03: a tap used to ENTER: the "too easily" bug; taps don't dive in
-            elif a in ("enter", "back"): send({"k": a})               # only from a deliberate press/hold (block-to-cube.py decide())
-            elif a == "jump":                                         # a tap on a calling corner: roll to that face and straight in
-                try: f = int(q.get("f", ["-1"])[0])
-                except ValueError: return self.deny(400)
-                if not 0 <= f < FACES: return self.deny(400)
-                send({"k": "jump", "f": f})
-            elif a == "goback": send({"k": "goback"})                 # the white return corner: exactly back where he was
-            else: return self.deny(400)
+            if pad is not None:
+                pad.set_view(dict(mode="face" if v.get("mode") == "face" else "cube",
+                                  face=v.get("face") if isinstance(v.get("face"), int) else None,
+                                  waiting=[w for w in (v.get("waiting") or []) if isinstance(w, dict) and isinstance(w.get("f"), int)][:FACES]))
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
         except ValueError: s = None
@@ -392,5 +370,15 @@ if "--parent" in sys.argv:
             try: os.kill(PARENT, 0)
             except ProcessLookupError: os.kill(os.getpid(), signal.SIGTERM); return
     threading.Thread(target=watch_parent, daemon=True).start()
+# the Lightpad (2026-11-03): optional. Loaded by path (python -I leaves this folder off sys.path); if it's missing or broken the cube
+# runs exactly as before. It does nothing at all until a pad bridge answers. TDT_PAD=0 turns it off; a TDT_HOME test copy needs TDT_PAD=1.
+try:
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location("padglue", os.path.join(HERE, "padglue.py"))
+    padglue = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(padglue)
+    if padglue.enabled():
+        pad = padglue.PadLink(send, lambda: f"http://127.0.0.1:{PORT}", log_path=os.path.join(HOME3, "pad-link.log")).start()
+except Exception as e:
+    pad = None; print(f"(Lightpad link off: {e!r})", flush=True)
 print(f"Session Cube: http://127.0.0.1:{PORT}/?k={KEY}", flush=True)
 httpd.serve_forever()

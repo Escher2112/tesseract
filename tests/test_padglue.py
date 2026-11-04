@@ -1,6 +1,7 @@
-"""FORK glue rules (run: python3 -I test_block_glue.py). Taps and wipes never enter; a deliberate press/hold does."""
-import importlib.util, os, sys
-spec = importlib.util.spec_from_file_location("glue", os.path.join(os.path.dirname(os.path.abspath(__file__)), "block-to-cube.py"))
+"""The Lightpad link's rules (run: python3 -I tests/test_padglue.py). Taps and wipes never enter; a deliberate press/hold does.
+The last part runs the real PadLink thread against a fake bridge in a temp folder (never the real pad homes)."""
+import importlib.util, json, os, socket, sys, tempfile, threading, time
+spec = importlib.util.spec_from_file_location("glue", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "padglue.py"))
 glue = importlib.util.module_from_spec(spec); spec.loader.exec_module(glue)
 d = glue.decide
 cases = [
@@ -48,4 +49,62 @@ more += [
 bad2 = [name for name, got, want in more if got != want]
 for name, got, want in more:
     print(("ok  " if got == want else "FAIL"), name, "" if got == want else f"got {got} want {want}")
-sys.exit(1 if (bad or bad2) else 0)
+
+# ------------------------------------------------------------ the messages the page gets, and when the link is on at all
+more3 = [
+    ("a right wipe -> next face",                    glue.cube_message(("spin", 1.0, 0.0)), {"k": "step", "d": 1}),
+    ("a left wipe -> previous face",                 glue.cube_message(("spin", -0.8, 0.0)), {"k": "step", "d": -1}),
+    ("a vertical wipe does nothing",                 glue.cube_message(("spin", 0.0, 1.0)), None),
+    ("jump carries its face",                        glue.cube_message(("jump", 3)), {"k": "jump", "f": 3}),
+    ("enter / back / goback pass through",           [glue.cube_message(a) for a in ("enter", "back", "goback")], [{"k": "enter"}, {"k": "back"}, {"k": "goback"}]),
+    ("on by default",                                glue.enabled({}), True),
+    ("TDT_PAD=0 turns it off",                       glue.enabled({"TDT_PAD": "0"}), False),
+    ("a TDT_HOME test copy leaves his pad alone",    glue.enabled({"TDT_HOME": "/tmp/x"}), False),
+    ("... unless asked with TDT_PAD=1",              glue.enabled({"TDT_HOME": "/tmp/x", "TDT_PAD": "1"}), True),
+]
+
+# ------------------------------------------------------------ the real thread against a fake bridge
+def fake_bridge(home):
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); srv.bind(os.path.join(home, "sock")); srv.listen(4)
+    def serve():
+        while True:
+            try: c, _ = srv.accept()
+            except OSError: return
+            try: c.recv(1024); c.sendall(b'{"ok": true, "mode": "idle"}\n')
+            finally: c.close()
+    threading.Thread(target=serve, daemon=True).start(); return srv
+
+def wait_for(test, secs=6.0):
+    end = time.time() + secs
+    while time.time() < end:
+        if test(): return True
+        time.sleep(0.05)
+    return False
+
+root = tempfile.mkdtemp(prefix="padglue-test-", dir="/tmp")    # short path: unix sockets have a ~100-char limit
+real, sim = os.path.join(root, "lp"), os.path.join(root, "lp-sim")
+os.makedirs(real); os.makedirs(sim)
+open(os.path.join(sim, "events.jsonl"), "w").write(json.dumps({"gesture": "stroke", "direction": "left to right", "distance": 1}) + "\n")
+sent = []
+glue.DETECT_S = 0.2
+link = glue.PadLink(sent.append, lambda: "http://127.0.0.1:1", homes=[real, sim]).start()
+time.sleep(0.6)
+more3.append(("no bridge: nothing at all is sent", list(sent), []))
+srv = fake_bridge(sim)
+more3.append(("a live bridge turns the pad on",  wait_for(lambda: {"k": "pad", "on": True, "dev": "sim"} in sent), True))
+more3.append(("old touches from before are skipped", [m for m in sent if m.get("k") == "step"], []))
+link.set_view({"mode": "cube", "face": 0, "waiting": [{"f": 2, "since": 1, "colour": "#00c7be"}]})
+with open(os.path.join(sim, "events.jsonl"), "a") as f: f.write(json.dumps({"gesture": "stroke", "direction": "right to left", "distance": 1}) + "\n")
+more3.append(("a new wipe reaches the page",      wait_for(lambda: {"k": "step", "d": -1} in sent), True))
+sig = os.path.join(sim, "tesseract.json")
+more3.append(("the waiting face lights a corner", wait_for(lambda: os.path.exists(sig) and json.load(open(sig))["calls"][:1] == [
+    {"corner": "top_right", "colour": "#00c7be", "face": 2, "reason": ""}]), True))
+more3.append(("hello says the pad is here",       link.hello(), {"k": "pad", "on": True, "dev": "sim", "quiet": True}))
+srv.close(); os.remove(os.path.join(sim, "sock"))
+more3.append(("the bridge goes: the pad turns off", wait_for(lambda: sent[-1] == {"k": "pad", "on": False, "dev": None}), True))
+
+bad3 = [name for name, got, want in more3 if got != want]
+for name, got, want in more3:
+    print(("ok  " if got == want else "FAIL"), name, "" if got == want else f"got {got} want {want}")
+print(f"{len(cases) + len(more) + len(more3) - len(bad) - len(bad2) - len(bad3)}/{len(cases) + len(more) + len(more3)} padglue rules")
+sys.exit(1 if (bad or bad2 or bad3) else 0)
