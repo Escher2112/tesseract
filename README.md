@@ -35,6 +35,16 @@ give your user read/write on `/dev/hidraw*` with a udev rule. The Linux path is 
 
 **Anywhere (browser):** `python3 server.py` and open the URL it prints.
 
+## Optional: a ROLI Lightpad Block
+If a Lightpad bridge is running (it answers on `~/.lyra-lightpad/sock` for the real block, or `~/.lyra-lightpad-sim/sock` for an
+iPad standing in for one), Tesseract notices it within a couple of seconds and the pad joins in. Nothing else changes: the
+Spaceball, PowerMate, keyboard and mouse work exactly as before, and with no pad `padglue.py` does nothing at all.
+- On the cube: wipe across the pad = next / previous face · a firm press held a moment (one still finger on the iPad) = into the face.
+- A face that needs you lights a corner of the pad in its colour; tap it to jump straight in. While you're there the pad shows a
+  white strip back home; tap the white corner to go back where you were.
+- Inside a face, touches belong to the session running there.
+- Off switch: `TDT_PAD=0`. A test copy (`TDT_HOME` set) leaves the pad alone unless `TDT_PAD=1`. Its log: `~/.config/3d-terminal/pad-link.log`.
+
 ## Reopen your sessions (Claude Code)
 Quit with Claude running on some faces, and next time each of those faces resumes the same conversation (same folder, same flags).
 One-time setup: copy `hooks/claude-session-hook.py` to `~/.config/3d-terminal/` and add it as a **SessionStart** hook in

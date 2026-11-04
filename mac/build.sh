@@ -28,7 +28,7 @@ PLIST
 SUP="$HOME/Library/Application Support/3D Terminal"
 # The core goes OUTSIDE the app (see main.swift), so updating the page or server never changes the app's signature and macOS keeps
 # the permissions you already gave it.
-mkdir -p "$SUP/core"; cp "$ROOT/server.py" "$ROOT/index.html" "$ROOT/gl.js" "$SUP/core/"; rm -rf "$SUP/core/vendor"; cp -R "$ROOT/vendor" "$SUP/core/vendor"
+mkdir -p "$SUP/core"; cp "$ROOT/server.py" "$ROOT/padglue.py" "$ROOT/index.html" "$ROOT/gl.js" "$SUP/core/"; rm -rf "$SUP/core/vendor"; cp -R "$ROOT/vendor" "$SUP/core/vendor"
 if [ ! -x "$SUP/venv/bin/python3" ]; then mkdir -p "$SUP"; python3 -m venv "$SUP/venv" && "$SUP/venv/bin/pip" -q install hidapi; fi
 # 2026-10-29: sign with Chris's home-made "Tesseract Local Signing" certificate when it exists, so macOS keeps the PowerMate's Input
 # Monitoring across rebuilds (an ad-hoc signature is new every build, and macOS forgets the permission each time). Fallback: ad-hoc.

@@ -121,6 +121,9 @@ def set_attn(face, state, reason):
         msg = dict(k="attn", f=face, **a)
     send(msg)
 shells = [Shell(i) for i in range(FACES)]
+# 2026-11-03 the Lightpad Block (padglue.py, optional): it sleeps until a pad bridge answers, then the page reports its view + waiting
+# faces (POST /blockview) and the pad's calling corners / wipes / corner taps come back as the page's own step, enter, jump and goBack.
+pad = None
 def program_under(pid, names):                                       # first process below this shell whose name is in names → (pid, name)
     try: rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True, timeout=5).stdout.split("\n")
     except Exception: return None
@@ -289,6 +292,7 @@ class H(BaseHTTPRequestHandler):
             if not s.alive() and (s.face < 6 or s.pid is not None or s.had_session()): s.start()
             mine.put(json.dumps({"f": s.face, "o": s.replay(), "replay": True}))
         mine.put(json.dumps({"k": "config", "toggle": sb["toggle"], "prefs": load_config().get("prefs", {})})); mine.put(json.dumps({"k": "knobfree", "free": knob["free"], "quiet": True})); mine.put(json.dumps({"k": "knobstat", "s": knob["status"], "quiet": True}))
+        if pad is not None: mine.put(json.dumps(pad.hello()))          # is a Lightpad here (the page reports to it only if so)
         if sb.get("dev"): mine.put(json.dumps(sb["dev"]))                # which 3D mouse this is (the page shows its own button labels)
         with attn_lock:
             for i, a in enumerate(attn): mine.put(json.dumps(dict(k="attn", f=i, **a)))
@@ -317,6 +321,14 @@ class H(BaseHTTPRequestHandler):
                 except Exception: return self.deny(400)
                 c = load_config(); p = c.get("prefs", {})
                 p.update({k: v for k, v in new.items() if k in PREF_KEYS}); c["prefs"] = p; save_config(c)
+            self.send_response(204); self.end_headers(); return
+        if u.path == "/blockview":                                    # the page reports its view + waiting faces for the Lightpad
+            try: v = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0") or 0)) or b"{}")
+            except Exception: return self.deny(400)
+            if pad is not None:
+                pad.set_view(dict(mode="face" if v.get("mode") == "face" else "cube",
+                                  face=v.get("face") if isinstance(v.get("face"), int) else None,
+                                  waiting=[w for w in (v.get("waiting") or []) if isinstance(w, dict) and isinstance(w.get("f"), int)][:FACES]))
             self.send_response(204); self.end_headers(); return
         try: f = int(q.get("f", ["-1"])[0]); s = shells[f] if 0 <= f < FACES else None
         except ValueError: s = None
@@ -358,5 +370,15 @@ if "--parent" in sys.argv:
             try: os.kill(PARENT, 0)
             except ProcessLookupError: os.kill(os.getpid(), signal.SIGTERM); return
     threading.Thread(target=watch_parent, daemon=True).start()
+# the Lightpad (2026-11-03): optional. Loaded by path (python -I leaves this folder off sys.path); if it's missing or broken the cube
+# runs exactly as before. It does nothing at all until a pad bridge answers. TDT_PAD=0 turns it off; a TDT_HOME test copy needs TDT_PAD=1.
+try:
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location("padglue", os.path.join(HERE, "padglue.py"))
+    padglue = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(padglue)
+    if padglue.enabled():
+        pad = padglue.PadLink(send, lambda: f"http://127.0.0.1:{PORT}", log_path=os.path.join(HOME3, "pad-link.log")).start()
+except Exception as e:
+    pad = None; print(f"(Lightpad link off: {e!r})", flush=True)
 print(f"Session Cube: http://127.0.0.1:{PORT}/?k={KEY}", flush=True)
 httpd.serve_forever()

@@ -365,6 +365,13 @@ es.onmessage = e => {
     if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
   else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
   else if (m.k === 'knob') knob(m.t, m.b);
+  // the Lightpad Block (padglue.py, 2026-11-03): only ever sent while a pad bridge is live
+  else if (m.k === 'pad') { const was = padOn; padOn = !!m.on; padLast = ''; if (!m.quiet && was !== padOn) toast(padOn ? `Lightpad connected (${m.dev === 'sim' ? 'the iPad' : 'the block'})` : 'Lightpad gone · the cube carries on without it'); }
+  else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // a wipe on the pad -> next/prev face
+  else if (m.k === 'enter') enterFace(cur());                                // a deliberate held press -> into the face
+  else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // the same again -> back out
+  else if (m.k === 'jump') { if (Number.isInteger(m.f) && faces[m.f]) jumpTo(m.f); }   // a tap on a calling corner
+  else if (m.k === 'goback') goBack();                                       // the pad's white return corner
   else if (m.k === 'knobstat') { const was = knobStat; knobStat = m.s; if (m.s === 'blocked' && was !== 'blocked') toast('PowerMate blocked: Tesseract needs Input Monitoring · ⚙ → Buttons → Open Settings'); if (help.classList.contains('on')) renderPrefs(); }
   else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
 };
@@ -866,6 +873,19 @@ function jumpNext() {                                                    // olde
   if (w.length) jumpTo(w[0]); else toast(`nothing is waiting for you  ·  hold ${btnLabel(prefs.buttons.jump)} for all your sessions`);   // 14:21: falling back to history back was confusing now C does that
 }
 function goBack() { histGo(-1); }
+// 2026-11-03: tell the Lightpad what the cube shows and who is waiting; padglue.py turns it into the pad's calling corners (a face's
+// group colour) and the visit landing strip. Facts only: the pad's rules live there. Silent unless the server says a pad is here.
+let padOn = false, padLast = '', padAt = 0;
+function padReport() {
+  if (!padOn) return;
+  const mode = fullFace >= 0 ? 'face' : 'cube', face = fullFace >= 0 ? fullFace : frontFace();
+  const waitingNow = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since)
+    .map(i => ({ f: i, since: att[i].since, r: att[i].r, colour: prefs.colors[i] ? prefs.palette[prefs.colors[i] - 1] : null }));
+  const body = JSON.stringify({ mode, face, waiting: waitingNow }), now = performance.now();
+  if (body === padLast && now - padAt < 3000) return;
+  padLast = body; padAt = now; post('/blockview', body).catch(() => {});
+}
+setInterval(padReport, 700);
 function goForward() { histGo(1); }
 
 // ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
