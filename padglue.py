@@ -64,7 +64,10 @@ def decide(g, inside):
 def route(g, view):
     """What a pad gesture does given the cube's view. Corner taps are handled by on_corner_tap."""
     if (view or {}).get("mode") == "face":
-        return None                              # inside a face: the touch belongs to that face's session
+        # inside a face the touch belongs to that face's session, EXCEPT the same deliberate hold that took him in: it brings him back
+        # out (his design, 2026-11-02: "force press = into the face… force press again = back out"; switched on 2026-11-03 20:50)
+        action, _ = decide(g, True)
+        return "back" if action == "back" else None
     action, _ = decide(g, False)
     return action                                # cube view: wipes step, a deliberate hold dives in
 

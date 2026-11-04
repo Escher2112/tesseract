@@ -34,7 +34,10 @@ more = [
     ("a stopped waiter frees its corner",            C({"mode": "cube", "waiting": [{"f": 4, "since": 20}]}, corners)[1], {4: "top_left"}),
     ("cube view: a wipe steps",                      glue.route({"gesture": "stroke", "direction": "left to right", "distance": 1}, {"mode": "cube"}), ("spin", 1.0, 0.0)),
     ("face view: touches are left to the Lyra there", glue.route({"gesture": "stroke", "direction": "left to right", "distance": 1}, {"mode": "face", "face": 2}), None),
-    ("face view: a hold doesn't navigate",           glue.route({"gesture": "rest", "fingers": 1, "duration": 2}, {"mode": "face", "face": 2}), None),
+    ("face view: the same hold backs out (iPad)",    glue.route({"gesture": "rest", "fingers": 1, "duration": 1.05}, {"mode": "face", "face": 2}), "back"),
+    ("face view: a firm held press backs out",       glue.route({"gesture": "press", "pressure": 0.9, "duration": 0.5}, {"mode": "face", "face": 2}), "back"),
+    ("face view: taps stay with the Lyra there",     glue.route({"gesture": "tap", "fingers": 1, "duration": 0.1}, {"mode": "face", "face": 2}), None),
+    ("face view: a resting palm stays with her",     glue.route({"gesture": "rest", "fingers": 4, "duration": 3}, {"mode": "face", "face": 2}), None),
 ]
 action, visit = glue.on_corner_tap({"gesture": "corner_tap", "kind": "call", "corner": "top_right", "face": 2}, {"mode": "face", "face": 0}, None, 100.0)
 more += [
