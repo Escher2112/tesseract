@@ -52,9 +52,12 @@ for name, got, want in more:
 
 # ------------------------------------------------------------ the messages the page gets, and when the link is on at all
 more3 = [
-    ("a right wipe -> next face",                    glue.cube_message(("spin", 1.0, 0.0)), {"k": "step", "d": 1}),
-    ("a left wipe -> previous face",                 glue.cube_message(("spin", -0.8, 0.0)), {"k": "step", "d": -1}),
-    ("a vertical wipe does nothing",                 glue.cube_message(("spin", 0.0, 1.0)), None),
+    ("left to right rolls the left face in",         glue.cube_message(glue.route({"gesture": "stroke", "direction": "left to right", "distance": 0.8}, {"mode": "cube"})), {"k": "roll", "dy": 1, "dp": 0}),
+    ("right to left rolls the right face in",        glue.cube_message(glue.route({"gesture": "stroke", "direction": "right to left", "distance": 0.8}, {"mode": "cube"})), {"k": "roll", "dy": -1, "dp": 0}),
+    ("top to bottom rolls the top face in",          glue.cube_message(glue.route({"gesture": "stroke", "direction": "top to bottom", "distance": 0.8}, {"mode": "cube"})), {"k": "roll", "dy": 0, "dp": -1}),
+    ("bottom to top rolls the bottom face in",       glue.cube_message(glue.route({"gesture": "stroke", "direction": "bottom to top", "distance": 0.8}, {"mode": "cube"})), {"k": "roll", "dy": 0, "dp": 1}),
+    ("his 20:16 vertical wipes all roll now",        all(glue.cube_message(glue.route({"gesture": "stroke", "direction": d, "distance": x}, {"mode": "cube"})) for d, x in
+                                                         [("top to bottom", .82), ("top to bottom", .77), ("bottom to top", .72), ("top to bottom", .79), ("bottom to top", .62), ("top to bottom", .79), ("bottom to top", .82)]), True),
     ("jump carries its face",                        glue.cube_message(("jump", 3)), {"k": "jump", "f": 3}),
     ("enter / back / goback pass through",           [glue.cube_message(a) for a in ("enter", "back", "goback")], [{"k": "enter"}, {"k": "back"}, {"k": "goback"}]),
     ("on by default",                                glue.enabled({}), True),
@@ -92,10 +95,10 @@ time.sleep(0.6)
 more3.append(("no bridge: nothing at all is sent", list(sent), []))
 srv = fake_bridge(sim)
 more3.append(("a live bridge turns the pad on",  wait_for(lambda: {"k": "pad", "on": True, "dev": "sim"} in sent), True))
-more3.append(("old touches from before are skipped", [m for m in sent if m.get("k") == "step"], []))
+more3.append(("old touches from before are skipped", [m for m in sent if m.get("k") == "roll"], []))
 link.set_view({"mode": "cube", "face": 0, "waiting": [{"f": 2, "since": 1, "colour": "#00c7be"}]})
 with open(os.path.join(sim, "events.jsonl"), "a") as f: f.write(json.dumps({"gesture": "stroke", "direction": "right to left", "distance": 1}) + "\n")
-more3.append(("a new wipe reaches the page",      wait_for(lambda: {"k": "step", "d": -1} in sent), True))
+more3.append(("a new wipe reaches the page",      wait_for(lambda: {"k": "roll", "dy": -1, "dp": 0} in sent), True))
 sig = os.path.join(sim, "tesseract.json")
 more3.append(("the waiting face lights a corner", wait_for(lambda: os.path.exists(sig) and json.load(open(sig))["calls"][:1] == [
     {"corner": "top_right", "colour": "#00c7be", "face": 2, "reason": ""}]), True))

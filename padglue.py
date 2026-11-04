@@ -136,8 +136,15 @@ def cube_message(action):
     if isinstance(action, tuple) and action[0] == "jump":
         return {"k": "jump", "f": action[1]}
     if isinstance(action, tuple) and action[0] == "spin":
-        dx = action[1]
-        return {"k": "step", "d": 1 if dx > 0 else -1} if dx else None   # vertical wipes don't step (or dive in)
+        # 20:17 Chris: "it went side to side. It would not go up and down… it barely registers." Vertical wipes were dropped (7 of his
+        # 10 wipes did nothing) and side wipes used the knob's face-number dial. Now a wipe ROLLS the cube like the Spaceball, all four
+        # ways, as if dragging its surface: the face on the side you wipe FROM rolls in (left to right brings the left face, top to
+        # bottom brings the top face). The page's turn(dy, dp) does the roll; it never goes in or out of a face.
+        dx, dy = action[1], action[2]
+        if abs(dx) >= abs(dy) and dx:
+            return {"k": "roll", "dy": 1 if dx > 0 else -1, "dp": 0}
+        if dy:
+            return {"k": "roll", "dy": 0, "dp": 1 if dy > 0 else -1}
     return None
 
 
