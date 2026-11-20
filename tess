@@ -1,0 +1,61 @@
+#!/usr/bin/python3 -I
+"""tess — throw this Claude Code session onto a Tesseract face, or back out to a Terminal window (Lyra 2026-11-12).
+Chris: "take this window… and throw them onto a face in tesseract without having to reopen them… loses no continuity, and back again."
+
+  tess            this session moves onto a free face (from Terminal: type `! tess`, or ask the session to run it)
+  tess 4          …onto face 4 (only if nothing is running there)
+  tess out        (inside a face) this session moves to a new Terminal window. In the cube: Ctrl+Option+O does the same.
+
+The move happens when the session finishes its turn, never in the middle of one. The conversation carries over whole (same session id,
+`claude --resume`); anything the old session had running in the background does not. Needs Tesseract open: this only talks to its server
+(~/.config/3d-terminal/server.json, written while it runs). No server of its own, nothing left running."""
+import json, os, subprocess, sys, urllib.request, urllib.error
+
+HOME3 = os.path.expanduser(os.environ.get("TDT_HOME") or "~/.config/3d-terminal")
+
+def comm_ppid(pid):
+    out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    if not out: return None, None
+    pp, _, c = out.partition(" ")
+    return int(pp), os.path.basename(c.strip())
+
+def my_claude():                                                     # the claude process this command runs under
+    env = os.environ.get("CLAUDE_PID")
+    if env and env.isdigit() and comm_ppid(int(env))[1] == "claude": return int(env)
+    pid = os.getppid()
+    for _ in range(12):
+        pp, c = comm_ppid(pid)
+        if c is None: break
+        if c == "claude": return pid
+        pid = pp
+    return None
+
+def post(url, key, path, body=None):
+    req = urllib.request.Request(f"{url}{path}{'&' if '?' in path else '?'}k={key}", data=json.dumps(body or {}).encode(), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r: return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try: return e.code, json.loads(e.read() or b"{}")
+        except Exception: return e.code, {"msg": f"Tesseract said {e.code}"}
+    except OSError: return 0, {"msg": "Tesseract isn't answering. Is it open?"}
+
+def main(argv):
+    if argv and argv[0] in ("-h", "--help", "help"): print(__doc__); return 0
+    if argv and argv[0] == "out":
+        face, url, key = os.environ.get("SESSION_CUBE_FACE"), os.environ.get("SESSION_CUBE_URL"), os.environ.get("SESSION_CUBE_KEY")
+        if not (face and url and key): print("tess out: this session isn't on a Tesseract face"); return 1
+        code, j = post(url, key, f"/out?f={int(face) - 1}")
+        print(j.get("msg", code)); return 0 if code == 200 else 1
+    if os.environ.get("SESSION_CUBE_FACE"): print(f"already on Tesseract face {os.environ['SESSION_CUBE_FACE']} (tess out sends it back)"); return 1
+    try: h = json.load(open(os.path.join(HOME3, "server.json")))
+    except Exception: print("Tesseract isn't open (no server.json). Open it and try again."); return 1
+    pid = my_claude()
+    if not pid: print("tess: run it from inside a Claude Code session (type `! tess` there)"); return 1
+    body = {"pid": pid}
+    if argv:
+        if not argv[0].isdigit(): print(__doc__); return 1
+        body["face"] = int(argv[0])
+    code, j = post(h["url"], h["key"], "/take", body)
+    print(j.get("msg", code)); return 0 if code == 200 else 1
+
+if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

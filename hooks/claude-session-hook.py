@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""claude-session-hook.py — Claude Code SessionStart hook for 3D Terminal (Lyra 2026-10-27).
+Only acts inside a 3D Terminal face (SESSION_CUBE_FACE is set by the cube's server); everywhere else it does nothing.
+Writes ~/.config/3d-terminal/faces/face-N.json = {session_id, cwd, args} so the cube can reopen that conversation on that face."""
+import json, os, subprocess, sys
+face = os.environ.get("SESSION_CUBE_FACE")
+if not face: sys.exit(0)
+try: data = json.load(sys.stdin)
+except Exception: sys.exit(0)
+sid = data.get("session_id")
+if not sid: sys.exit(0)
+args, pid, cpid = "claude", os.getppid(), None          # walk up to the claude process to learn how it was started (its flags)
+for _ in range(6):
+    try: line = subprocess.run(["ps", "-o", "ppid=,args=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    except Exception: break
+    if not line: break
+    ppid, _, a = line.partition(" ")
+    if os.path.basename(a.split(" ")[0]) == "claude" or " claude " in f" {a} ": args, cpid = a, pid; break
+    pid = int(ppid)
+d = os.path.join(os.path.expanduser(os.environ.get("SESSION_CUBE_HOME") or "~/.config/3d-terminal"), "faces"); os.makedirs(d, exist_ok=True)
+rec = os.path.join(d, f"face-{face}.json")
+# 2026-11-13: WHICH FOLDER to reopen it from. SessionStart also fires mid-conversation (after a compaction or /clear), and by then the session
+# may have cd'd elsewhere: one face's record named a subfolder while the conversation lives under the home folder, and `claude --resume` from
+# the wrong folder can't find it. So: the folder this claude STARTED in (Claude Code's own ~/.claude/sessions/<pid>.json), else the folder
+# already on record for this same conversation, else the hook's cwd.
+cwd = None
+SESS = os.path.expanduser(os.environ.get("TDT_CLAUDE_SESSIONS") or "~/.claude/sessions")   # (tests point this at a scratch copy)
+try: cwd = json.load(open(os.path.join(SESS, f"{cpid}.json"))).get("cwd") if cpid else None
+except Exception: pass
+if not cwd:
+    try:
+        old = json.load(open(rec))
+        if old.get("session_id") == sid: cwd = old.get("cwd")
+    except Exception: pass
+json.dump({"session_id": sid, "cwd": cwd or data.get("cwd") or os.getcwd(), "args": args}, open(rec, "w"))

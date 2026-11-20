@@ -1,0 +1,1744 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tesseract</title>
+<!-- Session Cube (Lyra 2026-10-27): six live terminals on a cube, served by server.py.
+     Spaceball: spin it = turn one face left/right · tilt it = top/bottom face · button 1 = select (typing goes there) · button 2 = full screen
+     on/off · button 3 = back to face 1. PowerMate: turn = step faces · tap = full screen on/off.
+     Keys (Ctrl+Option): arrows = turn · Return = full screen · 1-6 = jump to a face. Clicking a face selects it. -->
+<link rel="stylesheet" href="/vendor/xterm.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
+<style>
+  :root { --glow: 1; --S: 560px; --bg: #07060d; --face: #000000; --edge: #4a3c8f; --sel: #c9b8ff; }
+  html, body { margin: 0; height: 100%; background: #050507; overflow: hidden; font: 12px Menlo, Monaco, monospace; color: #b9adf0; }
+  #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; transition: opacity 1.2s ease; }
+  /* 2026-10-28 real renderer (gl.js): a WebGL canvas draws the solid's body (materials, lights, chamfers) under the DOM screens. The
+     motes canvas becomes its background texture, and the CSS-faked metal (bezel + triangles) steps aside. */
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+  body.gl #bg { visibility: hidden; }  body.gl .bezel, body.gl .tri { display: none; }
+  body.gl .inner { inset: 24px; }                                  /* a wider frame so the material shows around each screen */
+  #scene { z-index: 1; }
+  #scene { position: fixed; inset: 0; perspective: 2200px; display: flex; align-items: center; justify-content: center; }
+  #cube { width: var(--S); height: var(--S); position: relative; transform-style: preserve-3d; }
+  /* 2026-10-28 Priority 3 (Chris: "brushed metal… full lighting and proper high end look"): every screen sits in a brushed-metal bezel
+     and the solid's triangles are plain metal structure. Lighting is computed per frame from each face's real normal (key light
+     upper-left-front): --L = diffuse brightness, --sp = specular strength, --sx/--sy = where the highlight sits on the face. */
+  .face { position: absolute; inset: 0; box-sizing: border-box; backface-visibility: hidden; transition: transform .45s ease; }
+  .metal { background:
+      radial-gradient(circle at var(--sx, 30%) var(--sy, 25%), rgb(255 255 255 / calc(var(--sp, 0) * .6)) 0%, transparent 60%),
+      linear-gradient(rgb(0 0 0 / calc(1 - var(--L, .6))), rgb(0 0 0 / calc(1 - var(--L, .6)))),
+      linear-gradient(var(--tc, transparent), var(--tc, transparent)),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / .045) 0 1px, rgb(0 0 0 / .06) 1px 2px, rgb(255 255 255 / .02) 2px 3px, transparent 3px 5px),
+      linear-gradient(135deg, #a3a7b0 0%, #6c7079 38%, #b4b8c0 52%, #5a5e66 70%, #8e929a 100%); }
+  .bezel { position: absolute; inset: 0; box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -1px 0 rgb(0 0 0 / .6), 0 0 0 1px rgb(0 0 0 / .7); }
+  .inner { position: absolute; inset: 12px; background: var(--face); display: flex; flex-direction: column; overflow: hidden; border-radius: 4px;
+           border: 2px solid #1b1726; box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 0 1px rgb(255 255 255 / .12); }
+  .tri { position: absolute; backface-visibility: hidden; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .face.front .inner { box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 18px rgba(140, 110, 255, .35); }
+  /* 2026-10-28 09:3x RIVEN'S REVIEW: one state, one channel. Group = the etched lines (+ bars), ALWAYS its own colour. Offered = the
+     rise. Selected = a small corner bracket, only when your typing goes somewhere other than the face in front. Waiting = an OUTER
+     glow + ring that pulses (steady 1.6 s, aging whitens it, never faster) and the ◆! glyph. Nothing repaints another state's channel. */
+  .face.sel .inner { box-shadow: inset 0 2px 6px rgb(0 0 0 / .9), 0 0 12px rgba(201, 184, 255, .3); }
+  .face.mark::before { content: ''; position: absolute; left: -8px; top: -8px; width: 22px; height: 22px; border-left: 3px solid #fff; border-top: 3px solid #fff; z-index: 3; }
+  .face.colored .hdr { border-top: 3px solid var(--gc); }  .face.colored .inner::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--gc); }
+  .glyph { position: absolute; top: calc(6px / var(--k, 1)); right: calc(9px / var(--k, 1)); width: calc(17px / var(--k, 1)); height: calc(17px / var(--k, 1)); background: #fff; transform: rotate(45deg);
+           display: none; z-index: 4; box-shadow: 0 0 8px rgb(0 0 0 / .8); }
+  .glyph::after { content: '!'; position: absolute; inset: 0; transform: rotate(-45deg); color: #000; font: 700 calc(13px / var(--k, 1)) Menlo, monospace; display: flex; align-items: center; justify-content: center; }
+  .face.attn .glyph { display: block; }
+  /* 10:45 Chris: "the title bars in fullscreen are VERY large, need like half the thickness". The overview rule (bigger plates on the
+     small 18-face screens) was also catching the full-screen bar. Full screen gets its own slim bar in every shape. */
+  #fullhdr.hdr, body.overview #fullhdr.hdr { font-size: 12px; font-weight: 600; padding: 3px 10px; line-height: 16px; }
+  #fullhdr .wbar input { padding: 1px 6px; font-size: 12px; } #fullhdr .wbar button { padding: 0 6px; font-size: 12px; line-height: 16px; }
+  .face:not(.offered) .inner::before { content: ''; position: absolute; inset: 0; background: rgb(0 0 0 / calc(.32 * var(--offer, 0))); pointer-events: none; z-index: 5; }  .face.attn .hdr { padding-right: calc(36px / var(--k, 1)); }
+  .hdr .st { margin-left: 12px; color: #fff; }  body.overview .hdr .st { display: none; }   /* small plates: the title wins; the ◆! glyph + the list carry the status */
+  /* overview (any shape but the cube): a readable title plate, the terminal itself dimmed on faces you're not looking at */
+  body.overview .hdr { font-size: calc(15px / var(--k)); padding: calc(6px / var(--k)) calc(10px / var(--k)); }
+  body.overview .face:not(.front) .host { opacity: .35; }  body.overview .websnap { top: calc(30px / var(--k)); height: calc(100% - 30px / var(--k)); }
+  .hdr { font-size: 15px; font-weight: 700; letter-spacing: .02em; padding: 6px 10px; background: #17132b; color: #cfc4ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+  .host { flex: 1; padding: 4px; min-height: 0; }
+  .host .xterm { height: 100%; }
+  #full { position: fixed; inset: 0; background: var(--face); display: none; flex-direction: column; z-index: 5; transform-origin: 0 0; }
+  #fullsnap { position: absolute; left: 0; right: 0; top: 22px; bottom: 0; width: 100%; height: calc(100% - 30px); object-fit: cover; object-position: top; display: none; z-index: 1; background: #fff; }
+  #full.on { display: flex; }
+  /* 23:03 Chris: the help line overlapped Claude Code's bottom bar in full screen. Now it's a ⚙ in the top-right corner that opens a panel. */
+  #gear { position: fixed; top: 4px; right: 10px; z-index: 7; font-size: 18px; color: #8f86d9; cursor: pointer; opacity: .7; user-select: none; }
+  #gear:hover { opacity: 1; }
+  /* 2026-10-28 09:58 Chris: "settings is ugly… look at my other apps — some have excellent settings layouts… make it super clean".
+     Alcove's settings language (app/index.html: .overlay/.dialog/.dnav/.field/.toggle/.sw/.range): a centred dialog over a blurred
+     backdrop, one fixed height for every tab, pill tabs, a small muted label over each control, switch rows with a one-line hint,
+     sliders with a value readout. Every control keeps its old id and handler: only the layout changed. */
+  :root { --acc: #b49cff; --acc-soft: rgb(180 156 255 / .14); --line: rgb(180 156 255 / .22); --muted: #9a92c2; --ink: #e9e4ff; }
+  #help.overlay { position: fixed; inset: 0; z-index: 7; background: rgb(4 3 10 / .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+                  display: none; align-items: center; justify-content: center; padding: 20px; }
+  #help.on { display: flex; }
+  .dialog { width: min(780px, 100%); height: min(720px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 22px;
+            background: rgb(16 13 30 / .97); border: 1px solid var(--line); box-shadow: 0 30px 80px rgb(0 0 0 / .6); color: var(--ink);
+            font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  .dhead { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .dhead h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .01em; } .dsub { flex: 1; color: var(--muted); font-size: 12px; }
+  .dx { border: 1px solid var(--line); background: transparent; color: var(--ink); width: 30px; height: 30px; border-radius: 10px; font-size: 18px; cursor: pointer; }
+  .dx:hover { border-color: var(--acc); color: var(--acc); }
+  .dnav { display: flex; gap: 6px; padding: 12px 20px 2px; flex-wrap: wrap; }
+  .dtab { padding: 6px 13px; border-radius: 11px; cursor: pointer; color: var(--muted); border: 1px solid transparent; font-size: 13px; user-select: none; }
+  .dtab:hover { color: var(--ink); } .dtab.on { color: var(--acc); border-color: var(--acc); background: var(--acc-soft); }
+  .dbody { flex: 1; min-height: 0; overflow: auto; padding: 8px 20px 22px; }
+  .sec { display: none; } .sec.on { display: block; }
+  .grp { margin: 18px 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .note { color: var(--muted); font-size: 12px; margin: 6px 0; line-height: 1.5; }
+  .field { margin: 12px 0; } .field > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; letter-spacing: .02em; }
+  .dialog select, .dialog input[type=text], .dialog input[type=number], .dialog input:not([type]) { width: 100%; box-sizing: border-box; border: 1px solid var(--line);
+            background: rgb(0 0 0 / .35); color: var(--ink); border-radius: 11px; padding: 8px 11px; font: inherit; outline: none; }
+  .dialog select:focus, .dialog input:focus { border-color: var(--acc); }  .dialog select option { background: #0e0c1c; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .range { display: flex; align-items: center; gap: 10px; } .range input { flex: 1; accent-color: var(--acc); }
+  .range output { min-width: 46px; text-align: right; color: var(--acc); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px;
+            margin: 8px 0; background: rgb(0 0 0 / .2); cursor: pointer; }
+  .toggle small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .sw { position: relative; width: 42px; height: 24px; flex: none; } .sw input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .sw i { position: absolute; inset: 0; border-radius: 999px; background: rgb(255 255 255 / .12); transition: .2s; }
+  .sw i::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: #cfc8ee; transition: .2s; }
+  .sw input:checked + i { background: var(--acc); } .sw input:checked + i::before { transform: translateX(18px); background: #140f26; }
+  .seg { display: flex; gap: 8px; flex-wrap: wrap; } .seg label { flex: 1; min-width: 140px; cursor: pointer; }
+  .seg input { position: absolute; opacity: 0; }
+  .seg span { display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgb(0 0 0 / .2); line-height: 1.35; }
+  .seg span small { display: block; color: var(--muted); font-size: 11.5px; }
+  .seg input:checked + span { border-color: var(--acc); background: var(--acc-soft); color: var(--ink); }
+  .btn { border: 1px solid var(--line); background: rgb(0 0 0 / .25); color: var(--ink); border-radius: 10px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  .btn:hover { border-color: var(--acc); color: var(--acc); } .btn.acc { border-color: var(--acc); color: var(--acc); background: var(--acc-soft); }
+  .linkbtn { color: var(--acc); cursor: pointer; text-decoration: none; } .linkbtn:hover { text-decoration: underline; }
+  .card { border: 1px solid var(--line); border-radius: 13px; padding: 10px 13px; margin: 8px 0; background: rgb(0 0 0 / .2); }
+  .brow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgb(180 156 255 / .08); }
+  .kcap { display: inline-block; min-width: 26px; text-align: center; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line); background: rgb(255 255 255 / .06);
+          font: 600 12px Menlo, monospace; } .warn { color: #ffb86b; font-size: 11.5px; }
+  .palrow { display: flex; align-items: center; gap: 12px; padding: 7px 0; }  .palrow .chip { width: 34px; height: 22px; border-radius: 7px; }
+  .readout { font: 11.5px Menlo, monospace; color: var(--acc); white-space: pre-wrap; }
+  .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .keys .card b { display: block; margin-bottom: 6px; letter-spacing: .06em; font-size: 11.5px; color: var(--muted); }
+  .keys .card div { line-height: 1.7; }
+  .dbody { scrollbar-width: thin; scrollbar-color: rgb(180 156 255 / .35) transparent; }
+  .dbody::-webkit-scrollbar { width: 8px; } .dbody::-webkit-scrollbar-thumb { background: rgb(180 156 255 / .3); border-radius: 8px; } .dbody::-webkit-scrollbar-track { background: transparent; }
+  /* 2026-10-28 Priority 1 (colors) + 2 (attention), Chris + Riven's spec. A face's group colour is an etched, glowing double line
+     around its edge (never a fill: the terminal stays black and readable). A face waiting on a person pulses in ITS OWN colour
+     (--pc, which can fade toward white the longer it waits); uncoloured faces pulse lavender. */
+  .face { --gc: var(--edge); --pc: #c9b8ff; }
+  .face.colored .inner { border: 3px double var(--gc); box-shadow: 0 0 calc(16px * var(--glow)) var(--gc), inset 0 0 calc(6px * var(--glow)) var(--gc); }
+  .face.colored.sel .inner { box-shadow: 0 0 calc(34px * var(--glow)) var(--gc), inset 0 0 calc(10px * var(--glow)) var(--gc); }
+  /* 16:05 PERF: the pulse animated BOX-SHADOW, which repaints the face every frame (measured: two waiting faces took the GPU process from
+     3% to 19% on a copy with his settings). Same look, cheap: the glow is drawn ONCE on a layer over the screen and only its OPACITY
+     pulses (the compositor fades it without repainting). Same 1.6 s breath; aging still whitens it through --pc. */
+  .face.attn .inner { box-shadow: 0 0 4px var(--pc), 0 0 0 1px var(--pc); }
+  .face.attn::after { content: ''; position: absolute; inset: 12px; border-radius: 4px; pointer-events: none; z-index: 2; will-change: opacity;
+                      box-shadow: 0 0 calc(36px * var(--glow) + 10px) var(--pc), 0 0 0 4px var(--pc); animation: pulse 1.6s steps(4) infinite; }
+  body.gl .face.attn::after { inset: 24px; }
+  /* stepped: 4 segments × 4 steps = 16 changes per 1.6 s breath (10 a second) instead of 60 — measured 13% → 7% (floor 3%); the extra
+     keyframes keep the eased in-and-out shape the smooth curve had */
+  @keyframes pulse { 0%, 100% { opacity: 0.12; } 25%, 75% { opacity: 0.5; } 50% { opacity: 1; } }
+  .face.dim { opacity: .15; }
+  body.lowfx .face.colored .inner, body.lowfx .face.colored.sel .inner { box-shadow: none; }
+  body.lowfx .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); }  body.lowfx .face.attn::after { display: none; }
+  @media (prefers-reduced-motion: reduce) { .face.attn .inner { animation: none; box-shadow: 0 0 0 4px var(--pc); } .face.attn::after { display: none; } }
+  #full.colored { border: 3px double var(--gc); box-sizing: border-box; }
+  #attnq { position: fixed; top: 6px; right: 40px; z-index: 8; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .aq { padding: 4px 10px; border-radius: 6px; background: rgba(20, 16, 40, .94); color: #e8e2ff; border: 2px solid var(--pc); cursor: pointer; }
+  .aq .x { margin-left: 10px; opacity: .55; }  .aq .x:hover { opacity: 1; }
+
+  .chip { display: inline-block; width: 26px; height: 16px; border-radius: 4px; vertical-align: middle; cursor: pointer; border: 1px solid rgb(255 255 255 / .5); }
+  #palpop { position: fixed; z-index: 9; width: 272px; padding: 10px; background: rgba(20, 16, 40, .98); border: 1px solid var(--edge); border-radius: 8px;
+            display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; box-shadow: 0 8px 30px rgb(0 0 0 / .6); }
+  #palpop .palttl, #palpop .palname { grid-column: 1 / -1; color: #d8d0ff; } #palpop .palname { text-align: center; font-weight: 700; }
+  #palpop .sw { width: 26px; height: 26px; border-radius: 5px; border: 1px solid rgb(255 255 255 / .35); cursor: pointer; padding: 0; }
+  #palpop .sw:hover { transform: scale(1.15); } #palpop .sw.on { outline: 3px solid #fff; outline-offset: 1px; }
+  #prefs input[type=number] { width: 42px; } #prefs a { color: #c9b8ff; } #prefs button { font: inherit; margin-right: 4px; }
+  /* 2026-10-28 mini-browser faces: the face shows a picture of its browser; in full screen the app lays the live browser over the host */
+  .websnap { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; width: 100%; height: calc(100% - 30px); object-fit: cover; object-position: top; display: none; background: #fff; }
+  .face.web .websnap { display: block; }  .webhid { visibility: hidden; }
+  #fullhdr .wbar { display: flex; gap: 6px; align-items: center; } #fullhdr .wbar button { font: inherit; padding: 0 8px; }
+  #fullhdr .wbar input { flex: 1; font: 13px Menlo, monospace; padding: 3px 6px; background: #0d0b18; color: #e8e2ff; border: 1px solid var(--edge); border-radius: 4px; }
+  #toast { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 4px 12px; border-radius: 6px;
+           background: rgba(20, 16, 40, .9); color: #d8d0ff; display: none; }
+  /* 2026-10-28 Chris: "call it Tesseract… give it a very classy and shiny name badge… the obsidian look with silver edges". Prototype A
+     of three (Desktop/DESKTOP-ITEMS/Chris-Look-Here/Tesseract-badge/): black volcanic glass with a glassy top reflection, a polished
+     chrome bevel round the edge, chrome letters in Didot (a font every Mac has: the page still loads nothing from outside), a tesseract
+     mark. One light sweep when the app opens and never again (no animation runs while you work), hidden in full screen, and it never
+     catches the mouse (drags pass straight through). */
+  #badge { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 9px;
+           padding: 5px 16px 5px 11px; border-radius: 7px; overflow: hidden; pointer-events: none; user-select: none;
+           font: 600 11px Didot, "Bodoni 72", Optima, Georgia, serif; letter-spacing: .42em;
+           background: linear-gradient(180deg, rgb(255 255 255 / .16) 0%, rgb(255 255 255 / .04) 46%, transparent 50%),
+                       radial-gradient(120% 140% at 30% 0%, #2a2733 0%, #121117 45%, #050507 100%);
+           box-shadow: 0 0 0 1px #0a0a0c, 0 0 0 2.5px #d9dce2, 0 0 0 3.5px #6d7179, 0 0 0 4.5px #15151a, 0 8px 22px rgb(0 0 0 / .7), inset 0 1px 0 rgb(255 255 255 / .25); }
+  #badge span { margin-right: -.42em; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%);
+                -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #badge svg { width: 15px; height: 15px; flex: none; }
+  #badge::after { content: ''; position: absolute; top: -40%; bottom: -40%; left: -60%; width: 34%; transform: skewX(-20deg);
+                  background: linear-gradient(90deg, transparent, rgb(255 255 255 / .28), transparent); animation: badgeShine 1.5s ease-out 1.2s 1 both; }
+  @keyframes badgeShine { from { left: -60%; } to { left: 135%; } }
+  #full.on ~ #badge { display: none; }
+  /* 13:50 Chris: "button B — quick ref pop up… a small window, just like the Tesseract [badge]… all the buttons and stuff shown… very pretty,
+     full treatment, gorgeous". The badge's obsidian glass + chrome rim at card size. Everything on it is written from the LIVE map
+     (prefs.buttons, the model's labels, Motion settings, the home face) each time it opens. Static once open: the title's light sweeps
+     once per opening, nothing loops. */
+  #qref { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; padding: 24px;
+          background: rgb(3 3 6 / .5); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+  #qref.on { display: flex; }
+  .qcard { position: relative; width: min(780px, 100%); max-height: calc(100vh - 48px); overflow: auto; border-radius: 16px; padding: 22px 26px 18px;
+           color: #d8dbe1; font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+           background: linear-gradient(180deg, rgb(255 255 255 / .09) 0%, rgb(255 255 255 / .02) 22%, transparent 34%),
+                       radial-gradient(130% 120% at 25% 0%, #26232f 0%, #111016 48%, #050507 100%);
+           box-shadow: 0 0 0 1px #0a0a0c, 0 0 0 3px #d9dce2, 0 0 0 4px #6d7179, 0 0 0 5px #15151a, 0 30px 90px rgb(0 0 0 / .8), inset 0 1px 0 rgb(255 255 255 / .22);
+           animation: qIn .18s ease-out both; scrollbar-width: none; }
+  .qcard::before { content: ''; position: absolute; inset: 6px; border-radius: 11px; border: 1px solid rgb(205 209 216 / .14); pointer-events: none; }
+  @keyframes qIn { from { opacity: 0; transform: scale(.965); } to { opacity: 1; transform: none; } }
+  .qhead { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .qname { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; font: 600 17px Didot, "Bodoni 72", Optima, Georgia, serif; letter-spacing: .42em; }
+  .qname span { margin-right: -.42em; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .qname svg { width: 22px; height: 22px; }
+  .qname::after { content: ''; position: absolute; top: -40%; bottom: -40%; left: -60%; width: 30%; transform: skewX(-20deg);
+                  background: linear-gradient(90deg, transparent, rgb(255 255 255 / .35), transparent); animation: badgeShine 1.3s ease-out .15s 1 both; }
+  .qsub { flex: 1; text-align: right; color: #8d919a; font-size: 11.5px; letter-spacing: .08em; }
+  .qgrp { margin: 16px 0 9px; font-size: 10.5px; letter-spacing: .22em; text-transform: uppercase; color: #8d919a; display: flex; align-items: center; gap: 10px; }
+  .qgrp::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgb(205 209 216 / .3), transparent); }
+  .qkeys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px 10px; }
+  .qk { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
+  .qcap { width: 42px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative;
+          font: 700 15px Didot, "Bodoni 72", Georgia, serif; color: #1f2127; text-shadow: 0 1px 0 rgb(255 255 255 / .6);
+          background: linear-gradient(180deg, #fbfcfd 0%, #e2e5ea 22%, #bcc0c8 48%, #9ba0a9 54%, #cdd1d8 82%, #f3f5f7 100%);
+          box-shadow: inset 0 1px 0 rgb(255 255 255 / .95), inset 0 -2px 0 rgb(0 0 0 / .22), 0 0 0 1px #3b3e45, 0 3px 8px rgb(0 0 0 / .6); }
+  .qcap i { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; border-radius: 2px; }
+  .qk b { font-weight: 600; font-size: 12px; color: #eef0f3; line-height: 1.25; } .qk small { display: block; color: #8d919a; font-size: 10.5px; font-weight: 400; margin-top: 1px; }
+  .qk.free .qcap { opacity: .32; } .qk.free b { color: #5d616a; font-weight: 400; }
+  .qrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 26px; }
+  .qline { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid rgb(205 209 216 / .07); }
+  .qline kbd { flex: none; min-width: 112px; font: 600 11.5px Menlo, monospace; color: #e6e8ec; }
+  .qline span { color: #b7bbc3; }
+  .qfoot { margin-top: 14px; text-align: center; color: #6f737c; font-size: 11px; letter-spacing: .06em; }
+  /* 14:02 Chris: hold the jump button = the WAITING DRUM. "make it a faceted cylinder with each request on a face and you roll through
+     them… obsidian faceted cylinder with chrome end cap bearings". CSS 3D: N obsidian facets round a horizontal axis, chrome polygon end
+     caps with a bearing hub, a fixed bearing housing outside each cap. The ball rolls it with inertia; every facet is a detent. */
+  #drum { position: fixed; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+          background: rgb(3 3 6 / .55); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+  #drum.on { display: flex; animation: qIn .18s ease-out both; }
+  .dttl { white-space: nowrap; font: 600 13px Didot, "Bodoni 72", Optima, Georgia, serif; letter-spacing: .42em; }
+  .dttl span { margin-right: -.42em; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .dstage3d { height: auto !important; width: auto !important; perspective: none !important; } .dstage3d canvas { display: block; }
+  .dstage { perspective: 1400px; height: calc(var(--dh) * 2.4); width: calc(var(--dw) + 200px); display: flex; align-items: center; justify-content: center; }
+  .drot { position: relative; width: var(--dw); height: var(--dh); transform-style: preserve-3d; }
+  .dface { position: absolute; inset: 0; box-sizing: border-box; display: flex; align-items: center; gap: 16px; padding: 0 22px; backface-visibility: hidden;
+           color: #d8dbe1; font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+           background: linear-gradient(180deg, rgb(255 255 255 / .1) 0%, rgb(255 255 255 / .02) 40%, transparent 52%), radial-gradient(130% 160% at 30% 0%, #2a2733 0%, #121117 50%, #050507 100%);
+           box-shadow: inset 0 1px 0 rgb(255 255 255 / .28), inset 0 -1px 0 rgb(0 0 0 / .7), inset 0 0 0 1px rgb(205 209 216 / .1); }
+  .dface::after { content: ''; position: absolute; inset: 0; background: #000; opacity: var(--shade, 0); pointer-events: none; }
+  .dface.front { box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 0 0 1px rgb(217 220 226 / .55), 0 0 26px rgb(201 204 211 / .25); }
+  .dface .dbar { width: 4px; align-self: stretch; margin: 14px 0; border-radius: 3px; background: #4a4d55; flex: none; }
+  .dface .dno { font: 600 26px Didot, "Bodoni 72", Georgia, serif; min-width: 44px; text-align: center; background: linear-gradient(180deg, #ffffff 0%, #c9ccd3 45%, #8a8e97 55%, #e6e8ec 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .dface .dtx { flex: 1; min-width: 0; } .dface .dtx b { display: block; font-size: 14.5px; color: #eef0f3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dface .dtx small { display: block; color: #9a9ea7; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dface .dage { color: #8d919a; font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+  .dcap { position: absolute; left: 50%; top: 50%; backface-visibility: visible;
+          background: conic-gradient(from 10deg, #eef0f3, #8a8e97 14%, #f6f7f9 27%, #6d7179 41%, #dfe2e7 55%, #7d818a 69%, #f3f5f7 83%, #9a9fa8 92%, #eef0f3); }
+  .dcap::before { content: ''; position: absolute; inset: 22%; border-radius: 50%; background: radial-gradient(circle, #15151a 0 52%, #c9ccd3 54% 60%, #3b3e45 62% 100%); box-shadow: 0 0 0 2px #2b2d33; }
+  .dhub { position: absolute; left: 50%; top: 50%; border-radius: 50%; transform-style: preserve-3d;
+          background: radial-gradient(circle at 38% 32%, #ffffff 0%, #d9dce2 18%, #8a8e97 46%, #e6e8ec 62%, #6d7179 78%, #2b2d33 100%);
+          box-shadow: 0 0 0 2px #111, 0 0 0 4px #c9ccd3, 0 0 0 5px #45484f, 0 6px 18px rgb(0 0 0 / .7); }
+  .dhub::after { content: ''; position: absolute; inset: 36%; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #f6f7f9, #7d818a 60%, #2b2d33); box-shadow: 0 0 0 1px #111; }
+  .dhint { color: #7d818a; font-size: 11.5px; letter-spacing: .06em; }
+  /* the 3D drum stands on the bottom edge of the window (his sketch: the fixture rises out of the bottom of the screen); words above it */
+  #drum.g3 { justify-content: flex-end; gap: 10px; } #drum.g3 .dball { margin: 0 0 6px; }
+  /* 2026-11-17 THE ROLODEX (his design spec): inside a full-screen face a twist of the ball opens the same reel, small, at the right
+     edge. No backdrop, no blur, and it never takes a click or a key: the terminal under it stays yours. */
+  #drum.side { left: auto; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; align-items: flex-end; justify-content: center; gap: 0; }
+  #drum.side.on { animation: none; }
+  .rolo { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px 8px 10px; border-radius: 14px 0 0 14px;
+          background: linear-gradient(180deg, rgb(255 255 255 / .07) 0%, transparent 30%), rgb(6 6 9 / .82);
+          box-shadow: 0 0 0 1px #0a0a0c, 0 0 0 2.5px rgb(217 220 226 / .55), 0 0 0 3.5px rgb(109 113 121 / .6), 0 16px 50px rgb(0 0 0 / .7); }
+  .rolo .dhint { font-size: 10.5px; } .rolo .dball { margin: 0; font-size: 9.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* FAST SWAP's arrival pulse (2026-11-17): the border of the face you land in lights, then a soft glow travels inward and fades, half a
+     second in all, in that face's group colour. Two layers drawn once and moved by opacity and scale only (nothing repaints per frame). */
+  #arrive { position: absolute; inset: 0; pointer-events: none; z-index: 6; --ac: #c9b8ff; }
+  #arrive i { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+  #arrive .ring { border: 2px solid var(--ac); box-shadow: 0 0 14px var(--ac), inset 0 0 10px var(--ac); }
+  #arrive .wave { box-shadow: inset 0 0 70px 10px var(--ac), 0 0 26px 2px var(--ac); }   /* a little glow outside too: the front of the wave is soft, not a line */
+  .dball { color: #5d616a; font: 10.5px Menlo, monospace; letter-spacing: .02em; margin-top: -10px; }
+  body.lowfx #drum.on { animation: none; } @media (prefers-reduced-motion: reduce) { #drum.on { animation: none; } }
+  body.lowfx .qcard, body.lowfx .qname::after { animation: none; } body.lowfx .qname::after { display: none; }
+  @media (prefers-reduced-motion: reduce) { .qcard, .qname::after { animation: none; } .qname::after { display: none; } }
+  body.lowfx #badge::after { animation: none; display: none; }
+  @media (prefers-reduced-motion: reduce) { #badge::after { animation: none; display: none; } }
+</style></head>
+<body>
+<canvas id="bg"></canvas><div id="scene"><div id="cube"></div></div>
+<div id="full"><div class="hdr" id="fullhdr"></div></div>
+<div id="drum" role="dialog" aria-label="Waiting sessions"></div><div id="qref" role="dialog" aria-label="Tesseract quick reference"></div><div id="badge" aria-label="Tesseract"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1.1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>
+<div id="gear" title="Settings">⚙</div><span id="tog" hidden>6</span>
+<div id="help" class="overlay"><div class="dialog" role="dialog" aria-label="Tesseract settings">
+  <div class="dhead"><h2>Tesseract</h2><span class="dsub" id="dsub"></span><button class="dx" id="dclose" title="Close (Esc)">×</button></div>
+  <div class="dnav" id="dnav"></div><div class="dbody"><div id="prefs"></div></div>
+</div></div><div id="toast"></div><div id="attnq"></div>
+<script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script><script src="/vendor/addon-unicode11.js"></script>
+<script>
+'use strict';
+const KEY = new URLSearchParams(location.search).get('k') || '';
+const TerminalCls = window.Terminal || (window.xterm && window.xterm.Terminal);
+const FitCls = (window.FitAddon && (window.FitAddon.FitAddon || window.FitAddon));
+// 2026-11-14 (Chris: "your little hearts have letters on them"): xterm.js measures characters with Unicode 6 tables by default, so
+// newer emoji (🖤 U+1F5A4, Unicode 9) count as ONE column while Claude Code draws them as TWO, and the next character lands on the
+// emoji's right half. The Unicode 11 add-on (vendored, @xterm/addon-unicode11 0.9.0 for xterm 6.0.0) makes them two. It is a
+// "proposed" xterm API, hence allowProposedApi below. Missing or failing add-on = the old widths, never a broken cube.
+const Uni11Cls = (window.Unicode11Addon && (window.Unicode11Addon.Unicode11Addon || window.Unicode11Addon));
+const cube = document.getElementById('cube'), full = document.getElementById('full'), fullhdr = document.getElementById('fullhdr'), help = document.getElementById('help');
+const S = Math.round(Math.min(innerWidth, innerHeight) * 0.66); document.documentElement.style.setProperty('--S', S + 'px');
+// ---------- SHAPES (Priority 3, Chris 2026-10-28: "the combined shapes that use squares plus trias… only show the square faces as
+// terminals, the trias are just filler… shaded like they are part of the structure"). Every shape is built from its vertex maths:
+// squares carry sessions, triangles are lit metal. Coordinates are the page's own (x right, y down, z toward you).
+// Cube: squares at ±axes. Cuboctahedron (edge a): squares at ±axes, distance a/√2; triangles (±1,±1,0),(0,±1,±1),(±1,0,±1)·a/√2.
+// Rhombicuboctahedron (edge a, R = 1+√2): 6 axis squares + 12 edge squares, ALL at distance a·R/2; triangles (±R,±1,±1)… · a/2.
+// Only the cube shows its screens at full size; on the others each screen is scaled down (go full screen to work).
+const V = { add: (a, b) => a.map((v, i) => v + b[i]), sub: (a, b) => a.map((v, i) => v - b[i]), mul: (a, k) => a.map(v => v * k),
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  norm: a => { const n = Math.hypot(...a); return a.map(v => v / n); } };
+const SHAPES = { cube: { label: 'Cube · 6 screens · full-size workspace', n: 6 }, cuboct: { label: 'Cuboctahedron · 6 screens + metal', n: 6 },
+  rhombi: { label: 'Rhombicuboctahedron · 18 screens + metal', n: 18 } };
+function placeMatrix(n, u, t, k) {                                       // local x right / y down / z out → world; k = screen scale
+  const y = V.mul(u, -1), x = V.cross(y, n);
+  return new DOMMatrix([x[0] * k, x[1] * k, x[2] * k, 0, y[0] * k, y[1] * k, y[2] * k, 0, n[0], n[1], n[2], 0, t[0], t[1], t[2], 1]);
+}
+function upFor(n) { const ref = Math.abs(n[1]) > 0.9 ? [0, 0, -1] : [0, -1, 0]; return V.norm(V.sub(ref, V.mul(n, V.dot(ref, n)))); }
+function buildShape(name) {
+  const R2 = Math.SQRT2, sq = [], tri = []; let a, r;
+  const signs = []; for (const x of [1, -1]) for (const y of [1, -1]) for (const z of [1, -1]) signs.push([x, y, z]);
+  const axes = [[0, 0, 1], [1, 0, 0], [0, 0, -1], [-1, 0, 0], [0, -1, 0], [0, 1, 0]];    // slot 0 = facing you; the old cube order
+  if (name === 'cuboct') { a = S * 0.78; r = a / R2; axes.forEach(n => sq.push(n));
+    signs.forEach(([x, y, z]) => tri.push([[x, y, 0], [0, y, z], [x, 0, z]].map(v => V.mul(v, a / R2))));
+  } else if (name === 'rhombi') { a = S * 0.56; const R = 1 + R2; r = a * R / 2; axes.forEach(n => sq.push(n));
+    for (const [i, j] of [[0, 1], [1, 2], [0, 2]]) for (const si of [1, -1]) for (const sj of [1, -1]) { const n = [0, 0, 0]; n[i] = si; n[j] = sj; sq.push(V.norm(n)); }
+    signs.forEach(([x, y, z]) => tri.push([[x * R, y, z], [x, y * R, z], [x, y, z * R]].map(v => V.mul(v, a / 2))));
+  } else { a = S; r = S / 2; axes.forEach(n => sq.push(n)); }
+  // cuboctahedron squares sit diamond-wise (corners on the axes: (±1,0,1),(0,±1,1)…), so their edges run 45° to the cube's (Chris 07:27:
+  // "terminal faces are turned 45 degrees to the actual square faces"). Turn the screen's up direction 45° inside its own plane.
+  const k = a / S, slots = sq.map(n => { const u0 = upFor(n), u = name === 'cuboct' ? V.norm(V.add(u0, V.cross(n, u0))) : u0;
+    return { n, u, m: placeMatrix(n, u, V.mul(n, r), k) }; });
+  // cluster order: walk outward from the front face, always to the nearest unvisited face, so a run of slots sits side by side
+  const order = [0], left = new Set(slots.map((_, i) => i).slice(1));
+  while (left.size) { const last = slots[order[order.length - 1]].n; let best = -1, bd = -2;
+    for (const i of left) { const d = V.dot(slots[i].n, last); if (d > bd) { bd = d; best = i; } } order.push(best); left.delete(best); }
+  const tris = tri.map(vs => { const c = V.mul(V.add(V.add(vs[0], vs[1]), vs[2]), 1 / 3), n = V.norm(c), u = V.norm(V.sub(vs[0], c));
+    const near = slots.map((sl, i) => [V.dot(sl.n, n), i]).sort((p, q) => q[0] - p[0]).slice(0, 3).map(p => p[1]);
+    return { n, u, c, near, m: placeMatrix(n, u, c, 1) }; });
+  // invariants (fail loudly, never draw a wrong solid): every square sits at distance r, every triangle edge = a
+  slots.forEach(sl => { if (Math.abs(V.dot(sl.n, sl.n) - 1) > 1e-9) throw new Error('bad square normal'); });
+  tri.forEach(vs => [[0, 1], [1, 2], [2, 0]].forEach(([p, q]) => { const e = Math.hypot(...V.sub(vs[p], vs[q])); if (Math.abs(e - a) > 1e-6 * a) throw new Error(`${name}: triangle edge ${e} ≠ ${a}`); }));
+  // and every screen's four corners must land exactly on corners of the metal triangles (the check that would have caught the 45° turn)
+  if (tri.length) { const pts = tri.flat(); slots.forEach((sl, si) => { const y = V.mul(sl.u, -1), x = V.cross(y, sl.n), c = V.mul(sl.n, r);
+    for (const [p, q] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const cn = V.add(c, V.add(V.mul(x, p * a / 2), V.mul(y, q * a / 2)));
+      if (!pts.some(v => Math.hypot(...V.sub(v, cn)) < 1e-6 * a)) throw new Error(`${name}: screen ${si} corner misses the triangles`); } }); }
+  console.log(`[shape] ${name}: ${slots.length} screens, ${tris.length} triangles, edge ${a.toFixed(1)}px, screen distance ${r.toFixed(1)}px, scale ${k.toFixed(3)}`);
+  return { name, a, r, k, slots, tris, order };
+}
+let SH = buildShape('cube'), slotOf = [0, 1, 2, 3, 4, 5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];   // shell → slot (-1 = parked)
+const P = i => SH.slots[slotOf[i]].m.toString(), placeT = (i, rot) => `${P(i)} translateZ(var(--lift, 0px)) rotateZ(${rot}deg)`, visible = () => faces.filter(f => slotOf[f.i] >= 0).map(f => f.i);
+// 22:56 Chris: after rolling, "top" isn't top any more, so faces are just numbered and NAMED BY THEIR SESSION: the title the program
+// in the terminal sets (Claude Code sets one per session, the same name his terminal tabs show). 18 sessions exist; a shape shows its own.
+const NAMES = Array.from({ length: 18 }, (_, i) => String(i + 1));
+// 23:36 Chris: "the colors are wrong… do the same terminal colors in the app that we're using here." His Terminal.app profile is "Basic"
+// (read from com.apple.Terminal at 23:38): background #000000, text #009eff, cursor #0054a2, selection #4a598b; the 16 ANSI colours are
+// Terminal's standard Basic set (not overridden in his profile; values from Terminal's defaults, from memory).
+const THEME = { background: '#000000', foreground: '#009eff', cursor: '#0054a2', cursorAccent: '#000000', selectionBackground: '#4a598b',
+  black: '#000000', red: '#990000', green: '#00a600', yellow: '#999900', blue: '#0000b2', magenta: '#b200b2', cyan: '#00a6b2', white: '#bfbfbf',
+  brightBlack: '#666666', brightRed: '#e50000', brightGreen: '#00d900', brightYellow: '#e5e500', brightBlue: '#0000ff',
+  brightMagenta: '#e500e5', brightCyan: '#00e5e5', brightWhite: '#e5e5e5' };
+const faces = NAMES.map((name, i) => {
+  const el = document.createElement('div'); el.className = 'face'; el.style.display = slotOf[i] >= 0 ? '' : 'none'; if (slotOf[i] >= 0) el.style.transform = P(i) + ' translateZ(var(--lift, 0px))';
+  const bezel = document.createElement('div'); bezel.className = 'bezel metal'; const inner = document.createElement('div'); inner.className = 'inner';
+  const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.innerHTML = '<span class="ttl"></span><span class="st"></span>'; hdr.firstChild.textContent = name;
+  const host = document.createElement('div'); host.className = 'host'; const snap = document.createElement('img'); snap.className = 'websnap';
+  const glyph = document.createElement('div'); glyph.className = 'glyph'; glyph.title = 'needs you';
+  inner.append(hdr, host, snap, glyph); el.append(bezel, inner); cube.appendChild(el);
+  const term = new TerminalCls({ fontFamily: 'Menlo, Monaco, monospace', fontSize: 10, cursorBlink: true, scrollback: 5000,
+    theme: THEME, allowProposedApi: true });
+  const fit = new FitCls(); term.loadAddon(fit);
+  try { if (Uni11Cls) { term.loadAddon(new Uni11Cls()); term.unicode.activeVersion = '11'; }
+    if (i === 0) console.log(`[unicode] terminals measure with Unicode ${term.unicode.activeVersion}`); } catch (e) { console.warn('[unicode11] off:', e); }
+  term.open(host);
+  const f = { i, name, el, inner, hdr, host, term, fit, title: '', out: '', busy: false, seen: false };
+  term.onData(d => input(f, d));
+  term.onTitleChange(t => { f.title = t; label(f); });
+  // (clicks, drags, double-clicks on the solid are handled once, for the whole scene: see MOUSE + TRACKPAD)
+  return f;
+});
+function label(f) { const t = (f.i === (prefs.homeFace ?? 0) ? '⌂ ' : '') + f.name + '  ·  ' + (isWeb(f.i) ? '🌐 ' + (f.webTitle || f.webUrl || 'browser') : (f.title || 'no session yet: type claude')); f.hdr.firstChild.textContent = t; if (fullFace === f.i && !isWeb(f.i)) fullhdr.textContent = t + `   (${prefs.buttons && prefs.buttons.full ? 'button ' + btnLabel(prefs.buttons.full) + ' / ' : ''}pull up / Ctrl+Option+Return = back to the cube)`; if (typeof renderAttn === 'function') renderAttn(); }
+
+// ---------- talking to server.py: one stream in; keystrokes out in order, one request at a time per face
+const post = (path, body) => fetch(`${path}${path.includes('?') ? '&' : '?'}k=${encodeURIComponent(KEY)}`, { method: 'POST', body });
+function input(f, d) { f.out += d; pump(f); }
+function pump(f) {
+  if (f.busy || !f.out) return; const d = f.out; f.out = ''; f.busy = true;
+  post(`/in?f=${f.i}`, d).catch(() => {}).finally(() => { f.busy = false; pump(f); });
+}
+function refit(f) { if (!f.host.offsetWidth) return; try { f.fit.fit(); } catch (e) {} post(`/resize?f=${f.i}&c=${f.term.cols}&r=${f.term.rows}`); }
+const es = new EventSource(`/stream?k=${encodeURIComponent(KEY)}`);
+es.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if (m.f !== undefined && !m.k) { const f = faces[m.f]; if (m.replay) f.term.reset(); if (m.o) { f.term.write(m.o); f.seen = true; } if (m.exit) f.term.write('\r\n\x1b[2m[shell ended: type anything to start a new one]\x1b[0m\r\n'); }
+  else if (m.k === 'sb') { sbRaw[m.a] = m.v.slice(); sbRaw.at = performance.now(); sbRaw.n++; const b = (prefs.sbBias || {})[m.a] || [0, 0, 0];
+    (m.a === 't' ? sbT : sbR).splice(0, 3, ...m.v.map((v, i) => v - b[i])); sbAt = performance.now(); calFeed(); }
+  else if (m.k === 'sbb') sbButtons(m.m);
+  else if (m.k === 'config') { document.getElementById('tog').textContent = m.toggle; if (m.learned) toast(`hand-back button is now ${m.toggle}`); if (m.prefs) loadPrefs(m.prefs); }
+  else if (m.k === 'learned') { prefs.buttons[m.target] = m.b; if (DEVICE) prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs(); toast(`you pressed button #${m.b} (${btnLabel(m.b)}): ${(BUTTON_ACTIONS.find(a => a[0] === m.target) || [, m.target])[1]} is on it now`); }
+  else if (m.k === 'device') adoptDevice({ name: m.name, vid: m.vid, pid: m.pid });
+  else if (m.k === 'attn') { const a = att[m.f], fresh = a.s !== 'needs' && m.s === 'needs'; if (m.since !== a.since) a.dismissed = false; Object.assign(a, { s: m.s, r: m.r, since: m.since }); renderAttn();
+    if (fresh && waiting(m.f) && !m.replayed && performance.now() > 4000) chime(); }
+  else if (m.k === 'sbfree') { sbT = [0, 0, 0]; sbR = [0, 0, 0]; toast(m.free ? `Spaceball → your Mac (press ${document.getElementById('tog').textContent} to take it back)` : 'Spaceball → the cube'); }
+  else if (m.k === 'knob') knob(m.t, m.b);
+  // the Lightpad Block (padglue.py, 2026-11-03): only ever sent while a pad bridge is live
+  else if (m.k === 'pad') { const was = padOn; padOn = !!m.on; padLast = ''; if (!m.quiet && was !== padOn) toast(padOn ? `Lightpad connected (${m.dev === 'sim' ? 'the iPad' : 'the block'})` : 'Lightpad gone · the cube carries on without it'); }
+  else if (m.k === 'step') { knobStep(m.d > 0 ? 1 : -1); select(cur()); }   // a wipe on the pad -> next/prev face
+  else if (m.k === 'pdrag') { if (fullFace < 0 && !zooming) { if (m.end) release((m.vx || 0) * PAD_PX, (m.vy || 0) * PAD_PX); else rotateBy((m.dx || 0) * PAD_PX, (m.dy || 0) * PAD_PX); } }   // a finger dragging the cube (the mouse's own drag)
+  else if (m.k === 'ptwist') { if (fullFace < 0 && !zooming) { if (m.end) { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); } else tw.pend += m.deg || 0; } }   // two fingers twisting: spin about your line of sight (the right-button twist's glide), then click to a quarter
+  else if (m.k === 'roll') { if (fullFace < 0) { turn(m.dy | 0, m.dp | 0); select(frontFace()); } }   // a wipe on the pad rolls the cube, all four ways
+  else if (m.k === 'enter') enterFace(cur());                                // a deliberate held press -> into the face
+  else if (m.k === 'back') { if (fullFace >= 0) toggleFull(); }              // the same again -> back out
+  else if (m.k === 'jump') { if (Number.isInteger(m.f) && faces[m.f]) jumpTo(m.f); }   // a tap on a calling corner
+  else if (m.k === 'goback') goBack();                                       // the pad's white return corner
+  else if (m.k === 'note') toast(m.t);                                         // a word from the server (the hand-off's progress)
+  else if (m.k === 'arrive') { if (faces[m.f]) arrive(m.f, m.t); }            // HAND-OFF: a session thrown here with `tess` is on face m.f now
+  else if (m.k === 'left') { if (fullFace === m.f) toggleFull(); }            // its session went out to a Terminal window: back to the solid
+  else if (m.k === 'knobstat') { const was = knobStat; knobStat = m.s; if (m.s === 'blocked' && was !== 'blocked') toast('PowerMate blocked: Tesseract needs Input Monitoring · ⚙ → Buttons → Open Settings'); if (help.classList.contains('on')) renderPrefs(); }
+  else if (m.k === 'knobfree') { knobFree = m.free; if (!m.quiet) toast(m.free ? 'PowerMate → your Mac (Ctrl+Option+K takes it back)' : 'PowerMate → the cube'); if (help.classList.contains('on')) renderPrefs(); }
+};
+es.onopen = () => { startShown(); faces.forEach(refit); };
+function startShown() { visible().forEach(i => post(`/start?f=${i}`)); }
+
+// ---------- turning (rewritten 22:40 after Chris saw faces spin in place): the cube's orientation is ONE rotation (a quaternion), and
+// every step turns it about the SCREEN's axes (side = screen vertical, over-the-top = screen horizontal), so a side twist means side no
+// matter where the cube has been. After each step, whatever face is in front is turned upright, folded into the SAME target rotation,
+// so it arrives in one smooth move instead of a second spin. (The old version kept three separate angles; after rolling over the top,
+// its "side" axis pointed at the viewer and a side step spun the face in place, then the straightening flipped 180° — reproduced 22:38.)
+let Q = [1, 0, 0, 0], Qt = [1, 0, 0, 0], selFace = -1, fullFace = -1;
+let sbT = [0, 0, 0], sbR = [0, 0, 0], sbAt = 0, sbMask = 0, armed = { y: true, p: true }, heldSince = { y: 0, p: 0 };
+let zArmed = true; const PRESS = 200;
+const PUSH = 130, RELEASE = 50, REPEAT_MS = 1400;                   // 22:50 "too sensitive": firmer twist, slower repeat while held                     // spaceball readings run about -350..+350
+const qMul = (a, b) => [a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3], a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+                        a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1], a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];
+const qAxis = (x, y, z, deg) => { const h = deg * Math.PI / 360, s = Math.sin(h); return [Math.cos(h), x * s, y * s, z * s]; };
+const qNorm = q => { const n = Math.hypot(...q); return q.map(v => v / n); };
+function qSlerp(a, b, t) {
+  let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]; if (d < 0) { b = b.map(v => -v); d = -d; }
+  if (d > 0.9995) return qNorm(a.map((v, i) => v + (b[i] - v) * t));
+  const th = Math.acos(d), s = Math.sin(th); return a.map((v, i) => (v * Math.sin((1 - t) * th) + b[i] * Math.sin(t * th)) / s);
+}
+function qMatrix(q) {                                                  // p' = R p, written into DOMMatrix's column-major order
+  const [w, x, y, z] = q;
+  const R = [1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y), 2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x), 2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)];
+  return new DOMMatrix([R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1]);
+}
+function faceAt(q, i) { return qMatrix(q).multiply(SH.slots[slotOf[i]].m); }   // bare face, ignoring its picture turn
+// 08:22 lag pass: rotV / frontOf run dozens of times a frame. They used to build a DOMMatrix every call; now plain quaternion maths
+// (v' = v + 2w(q×v) + 2 q×(q×v)), no allocation but the result. frontOf compares rotated normals' z (same order as the old m43).
+const rotV = (q, v) => { const w = q[0], x = q[1], y = q[2], z = q[3];
+  const cx = y * v[2] - z * v[1], cy = z * v[0] - x * v[2], cz = x * v[1] - y * v[0];
+  return [v[0] + 2 * (w * cx + y * cz - z * cy), v[1] + 2 * (w * cy + z * cx - x * cz), v[2] + 2 * (w * cz + x * cy - y * cx)]; };
+function frontOf(q) { let best = 0, bz = -1e9; for (const i of visible()) { const n = SH.slots[slotOf[i]].n, w = q[0], x = q[1], y = q[2], z = q[3];
+  const cx = y * n[2] - z * n[1], cy = z * n[0] - x * n[2], zz = n[2] + 2 * (w * (x * n[1] - y * n[0]) + x * cy - y * cx); if (zz > bz) { bz = zz; best = i; } } return best; }
+function frontFace() { return frontOf(Qt); }
+function upright(q) {                                                  // turn about the screen's depth axis until the front face reads upright
+  const m = faceAt(q, frontOf(q)), o = m.transformPoint(new DOMPoint(0, 0, 0)), u = m.transformPoint(new DOMPoint(0, -1, 0));
+  const ang = Math.atan2(u.x - o.x, -(u.y - o.y)) * 180 / Math.PI;      // 0 = upright, + = leaning clockwise
+  return Math.abs(ang) < 1 ? q : qNorm(qMul(qAxis(0, 0, 1, -Math.round(ang / 90) * 90), q));
+}
+// 22:50 FOURTH design, Chris's: "do the natural motion so it goes to the right face and shows it upside down and then notices it's
+// upside down and then it'll just rotate itself." So a step is ONE pure quarter-roll about the screen axis you pushed (nothing mixed in),
+// and only after you've paused for SETTLE_MS does the front face get a separate flat spin upright. While you keep rolling there is no
+// straightening, so up-up-up rolls front, top, back, bottom, front like a real cube.
+const SETTLE_MS = 1000; let lastStepAt = 0;
+function frontFace() { return frontOf(Qt); }
+// dy +1 brings the face on the screen's LEFT to the front, dp +1 rolls the face at the screen's TOP down to the front
+const rollQ = (q, dy, dp) => qNorm(qMul(dy ? qAxis(0, 1, 0, 90 * dy) : qAxis(1, 0, 0, -90 * dp), q));
+// 2026-10-28 any shape: a push rolls the solid about that screen axis until the NEXT SCREEN along that direction faces you (a quarter
+// turn on the cube, as before; an eighth on the rhombicuboctahedron's rings; further where triangles sit in between). Then the solid
+// turns flat in the screen plane so the arriving square's edges line up with the screen (always 0° on the cube).
+function rollTo(A, sign) {
+  let best = null;
+  for (const i of visible()) {
+    const w = rotV(Qt, SH.slots[slotOf[i]].n); if (Math.abs(V.dot(w, A)) > 0.03) continue;      // that face isn't on this roll's circle
+    const phi = Math.atan2(V.dot(A, V.cross(w, [0, 0, 1])), w[2]) * 180 / Math.PI;
+    if (sign * phi > 1 && (best === null || Math.abs(phi) < Math.abs(best))) best = phi;
+  }
+  return alignQ(qNorm(qMul(qAxis(A[0], A[1], A[2], best === null ? 90 * sign : best), Qt)));
+}
+function alignQ(q) {                                                   // square the front face's edges to the screen (multiples of 90° stay)
+  const u = rotV(q, SH.slots[slotOf[frontOf(q)]].u), ang = Math.atan2(u[0], -u[1]) * 180 / Math.PI, spin = ang - 90 * Math.round(ang / 90);
+  return Math.abs(spin) < 0.3 ? q : qNorm(qMul(qAxis(0, 0, 1, -spin), q));
+}
+// 22:46 Chris: "make it not correct geometry… correct for working with it… every time you turn, the face it goes to presents itself
+// right side up." So the cube still rolls one clean quarter-turn the way you pushed, but the arriving face's PICTURE is turned inside
+// its square (0/90/180/270°) before it rolls in, so it lands upright with no extra spin. (Frozen previous version, pause-then-straighten:
+// index.html.v1-natural-roll-pause-straighten.)
+function present(q) {
+  // 2026-10-28 Chris on the 18-face shape: "faces can be at odd places and hard to swap to": the screens AROUND the front one showed
+  // their text sideways or upside down, so you couldn't read where anything was. Now EVERY visible screen turns its picture (0/90/180/
+  // 270°) so its text reads as upright as it can from where you sit, and the turn animates (CSS transition) the short way round.
+  for (const i of visible()) {
+    if (prefs.upright === false && !omarchy()) { const f = faces[i]; if (f.rot || !f.placed) { f.rot = 0; f.placed = true; f.el.style.transform = placeT(i, 0); } continue; }   // ⚙ off: faces keep their own orientation; you spin them yourself
+    const m = faceAt(q, i); let best = 0, bs = -1e9;
+    for (const th of [0, 90, 180, 270]) { const r = th * Math.PI / 180, p = m.transformPoint(new DOMPoint(Math.sin(r), -Math.cos(r), 0, 0));
+      if (-p.y > bs + 1e-9) { bs = -p.y; best = th; } }                 // the picture-up that points most up the screen
+    const f = faces[i], old = f.rot || 0, d = ((best - old) % 360 + 540) % 360 - 180;
+    if (Math.abs(d) > 0.5 || !f.placed) { f.rot = old + d; f.placed = true; f.el.style.transform = placeT(i, f.rot); }
+  }
+}
+function turn(dy, dp) { if (fullFace >= 0) return; Qt = dy ? rollTo([0, 1, 0], dy) : rollTo([1, 0, 0], -dp); cmdTarget = true; present(Qt); }
+function settle() {}
+function goTo(i) {                                                     // the shortest turn that brings face i to you, then square it up
+  if (slotOf[i] < 0) return;
+  if (frontOf(Qt) !== i) {
+    const w = rotV(Qt, SH.slots[slotOf[i]].n), c = V.cross(w, [0, 0, 1]), sn = Math.hypot(...c);
+    const ax = sn < 1e-6 ? [0, 1, 0] : V.mul(c, 1 / sn), deg = Math.atan2(sn, w[2]) * 180 / Math.PI;
+    Qt = alignQ(qNorm(qMul(qAxis(ax[0], ax[1], ax[2], deg), Qt))); settled = false;   // a new target: not settled until physics lands it (14:38: enterFace zoomed in mid-roll on a stale 'settled')
+  }
+  cmdTarget = true; present(Qt);
+}
+function select(i) { selFace = i; faces.forEach((f, j) => f.el.classList.toggle('sel', j === i)); faces[i].term.focus(); }
+// 2026-10-28 08:54 Chris: "when you jump into a face full screen it's pop and there… needs to animate it zooming in". Full screen now
+// GROWS out of the face's own spot on the solid (its screen rectangle → the window) and shrinks back into it on the way out. A browser
+// face carries its picture through the zoom (#fullsnap) and the live browser takes over when it lands. Low effects = no animation.
+let zooming = false; const ZOOM_MS = 380;
+const fullSnap = (() => { const im = document.createElement('img'); im.id = 'fullsnap'; full.appendChild(im); return im; })();
+function zoomBetween(rect, inward) {                                     // animate #full between the face's rectangle and the whole window
+  const W = innerWidth, H = innerHeight, small = `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / W}, ${rect.height / H})`;
+  return full.animate(inward ? [{ transform: small, opacity: 0.85 }, { transform: 'none', opacity: 1 }] : [{ transform: 'none', opacity: 1 }, { transform: small, opacity: 0.85 }],
+    { duration: prefs.lowfx ? 0 : ZOOM_MS, easing: 'cubic-bezier(.2,.8,.2,1)' });
+}
+function toggleFull() {
+  if (zooming) return;
+  if (drumOpen() && drum.side) showDrum(false);                         // leaving the face any other way puts the Rolodex away too
+  if (fullFace >= 0) {                                                // back onto the cube: shrink into the face's spot, then put it back
+    const f = faces[fullFace], web = isWeb(f.i); zooming = true;
+    if (web) { NATIVE && NATIVE.postMessage({ op: 'hide', face: f.i }); fullSnap.src = f.inner.querySelector('.websnap').src || ''; fullSnap.style.display = 'block'; }
+    document.getElementById('scene').style.visibility = '';
+    zoomBetween(f.inner.getBoundingClientRect(), false).onfinish = () => {
+      if (web) f.host.classList.remove('webhid'); fullSnap.style.display = 'none';
+      f.inner.insertBefore(f.host, f.inner.querySelector('.websnap')); f.term.options.fontSize = 10; full.classList.remove('on');
+      fullFace = -1; zooming = false; paint(); renderAttn(); refit(f); f.term.focus();
+    };
+    return;
+  }
+  // 2026-10-28 Chris: long press on a new face (Claude's trust prompt) opened some OTHER session: this used the last SELECTED face,
+  // which stays put while you roll. Full screen is always the face in front of you, and typing goes there.
+  const i = frontFace(), f = faces[i], web = isWeb(i), from = f.inner.getBoundingClientRect(); select(i); fullFace = i; zooming = true; noteVisit(i);   // full screen counts as landing there (14:38: a jump into full screen never reached physics, so history missed it)
+  if (web) { webBar(f); f.host.classList.add('webhid'); fullSnap.src = f.inner.querySelector('.websnap').src || ''; fullSnap.style.display = 'block'; }
+  full.appendChild(f.host); f.term.options.fontSize = 14; full.classList.add('on'); paint();
+  label(f); renderAttn(); refit(f); f.term.focus();
+  zoomBetween(from, true).onfinish = () => {
+    zooming = false; document.getElementById('scene').style.visibility = 'hidden';
+    if (web) { showWeb(i); setTimeout(() => { if (fullFace === i) fullSnap.style.display = 'none'; }, 120); }   // the live browser covers it first
+  };
+}
+function pressDown() { if (drumOpen()) { drum.ev = 'push → go'; drumGo(); return; } const i = frontFace(); if (fullFace >= 0) return; if (selFace === i) toggleFull(); else select(i); }
+function pullUp() { if (drumOpen()) { drum.ev = 'pull → close'; showDrum(false); return; } if (fullFace >= 0) toggleFull(); }
+function sbButtons(mask) {
+  const pressed = mask & ~sbMask, released = sbMask & ~mask; sbMask = mask;
+  const B = prefs.buttons, bit = n => (n ? 1 << (n - 1) : 0);
+  for (let g = 1; g <= 4; g++) { const b = bit(B['color' + g]); if (pressed & b) colorDown(g); if (released & b) colorUp(g); }
+  if (qrefOpen() && pressed && !(pressed & bit(B.quickref))) showQuickRef(false);   // any other button closes the card, then does its job
+  if (pressed & bit(B.quickref)) showQuickRef(!qrefOpen());
+  if (pressed & bit(B.jump)) { if (drumOpen()) { showDrum(false); jHold = null; } else jHold = setTimeout(() => { jHold = 'long'; showDrum(true); }, 500); }
+  if (released & bit(B.jump)) { if (jHold && jHold !== 'long') { clearTimeout(jHold); jumpNext(); } jHold = null; }   // tap = jump · hold = the drum
+  if (pressed & bit(B.back)) goBack();
+  if (pressed & bit(B.forward)) goForward();
+  if (!pressed) return;
+  // 09:52 Chris: "make them mappable… it's going to change based on the Spaceball version". Every action reads its button from prefs.buttons
+  if (pressed & bit(B.select)) { const i = frontFace(); select(i); }
+  if (pressed & bit(B.full)) toggleFull();
+  if (pressed & bit(B.home)) goHome();
+}
+// home = face 1, upright. 13:46 Chris: "7 doesn't select face 1". It set the target but not cmdTarget, so in hand mode the very next
+// physics() frame replaced it with the nearest screen and nothing moved. Now it claims the target like goTo does, and leaves full
+// screen first (waiting for the zoom-out, the way openFace does). Covered by tests/maths.test.mjs ("home lands on face 1").
+// 13:50 Chris: "we should have a 'set home face' option… the home face is your primary code window." prefs.homeFace (0-based, default
+// face 1), set in ⚙ Buttons; its title plate carries ⌂. If that face is parked on this shape, home falls back to the first face shown.
+const homeFace = () => { const h = prefs.homeFace ?? 0; return slotOf[h] >= 0 ? h : (visible()[0] ?? 0); };
+function goHome() {
+  const h = homeFace(), go = () => { W = [0, 0, 0]; settled = false; goTo(h); select(h); };   // the home face WHEREVER it sits (13:49: colour groups move faces between slots)
+  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
+  else go();
+}
+// the PowerMate (Chris 22:28): turning rolls the cube side to side, or top to bottom; a tap swaps which; a double tap picks the face.
+// A long press (0.4 s, fires while you're still holding) = full screen on/off. About 8 clicks = one face.
+// 2026-11-13 Chris: "long press to get out takes forever" → IN FULL SCREEN A SINGLE TAP IS OUT, the moment the button goes down (nothing
+// else the knob's button does means anything inside a face). Was: hold past 0.6 s, then the zoom only started on release, and a single
+// stray click of the knob during the press cancelled it silently. Now up to 2 stray clicks during a press are forgiven.
+let knobAcc = 0, kHeld = false, kPress = 0, kTurned = false, kMode = 'side', kTapTimer = null, knobLastT = 0, knobLastStep = 0, knobFast = 0, knobPending = -1;
+let kWobble = 0, kLongTimer = null, kDone = false;
+function knob(t, b) {
+  const now = performance.now();
+  if (b && !kHeld) {
+    kHeld = true; kPress = now; kTurned = false; kWobble = 0; kDone = false;
+    if (fullFace >= 0) { kDone = true; toggleFull(); return; }                    // in a face: one tap = straight back out to the cube
+    kLongTimer = setTimeout(() => { kLongTimer = null; if (kHeld && !kTurned) { kDone = true; toggleFull(); } }, 400);
+  }
+  if (t && kHeld && !kTurned && (kWobble += Math.abs(t)) <= 2) t = 0;              // a press that shifts the knob a click or two is still a press
+  if (t) { kTurned = true;
+    if (SH.name !== 'cube') {                                            // the face dial (22:24 Chris: "too slippery… settle into a pocket")
+      if (now - knobLastT > 350) knobAcc = 0;                            // a nudge that stopped short falls back into the pocket
+      knobLastT = now; knobAcc += t;
+      const need = now - knobLastStep > 450 ? 12 : 8;                    // climbing OUT of a resting face takes a firmer turn
+      if (Math.abs(knobAcc) >= need) { const d = knobAcc > 0 ? 1 : -1; knobStep(d); knobAcc = 0; knobLastStep = now; }
+    } else {
+      knobAcc += t;
+      while (Math.abs(knobAcc) >= 8) { const d = knobAcc > 0 ? 1 : -1; kMode === 'side' ? turn(d, 0) : turn(0, d); knobAcc -= d * 8; }
+    } }
+  if (!b && kHeld) {
+    kHeld = false; clearTimeout(kLongTimer); kLongTimer = null;
+    if (kTurned || kDone) return;
+    if (kTapTimer) { clearTimeout(kTapTimer); kTapTimer = null; select(frontFace()); }
+    else kTapTimer = setTimeout(() => { kTapTimer = null; kMode = kMode === 'side' ? 'updown' : 'side'; showMode(); }, 300);
+  }
+}
+// 22:11 Chris: the PowerMate on the cuboctahedron / rhombicuboctahedron "doesn't fit on a straight face": a knob is one axis, and a quarter
+// roll lands between screens there. On those shapes the knob is now a DIAL THROUGH THE FACES: each detent goes to the next / previous face
+// by number (1, 2, 3 … wrapping), always landing square. The cube keeps its rolls. Only the knob uses this.
+function knobStep(d) {
+  if (fullFace >= 0) return; const list = visible().slice().sort((a, b) => a - b); if (!list.length) return;
+  const i = list.indexOf(cur()), n = list[((i < 0 ? 0 : i) + d + list.length) % list.length]; goTo(n);
+  knobFast = performance.now() + 900; knobPending = n;                 // travel firm + fast, and click the moment it's centred (see physics)
+}
+// 22:30 Chris (one hand, Omarchy-fast): ON THE CUBE bare → / ← = next / previous face by number (the knob's dial, every shape), ↑ = into
+// that face full screen. IN A FACE the arrows belong to the terminal (history, menus, vim); ⌃⌥↓ takes you back out. Never steals keys
+// from a settings field, the drum, the card or a browser face's address bar.
+// 22:40 Chris: "we call this OMARCHY MODE… an overall toggle… auto centres the faces… focused on keys only". prefs.nav === 'omarchy'
+// (the server already saves "nav", unused till now): bare arrows drive the cube (below) and every face reads upright. Off = arrows go
+// to the selected terminal as before. ⌘↓ and ⌘J work either way.
+const omarchy = () => prefs.nav === 'omarchy';
+addEventListener('keydown', e => {
+  // 22:31 Chris: "Control Option Down is too many keys… Omarchy style… Command Down… the Super key". ⌘↓ in a face = back out (terminals
+  // don't use ⌘ with the arrows on a Mac); ⌃⌥↓ still works too.
+  if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'ArrowDown' && fullFace >= 0 && !zooming) { e.preventDefault(); e.stopPropagation(); toggleFull(); return; }
+  if (e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); e.stopPropagation(); showDrum(!drumOpen()); return; }   // ⌘J = the drum (22:40; ⌘A is Select All)
+  if (!omarchy() || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || fullFace >= 0 || zooming || drumOpen() || qrefOpen() || help.classList.contains('on')) return;
+  const t = e.target, typingField = t && t.tagName && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) && !(t.classList && t.classList.contains('xterm-helper-textarea'));
+  if (typingField) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { knobStep(e.key === 'ArrowRight' ? 1 : -1); select(cur()); }
+  else if (e.key === 'ArrowUp') enterFace(cur());
+  else if (e.key !== 'ArrowDown') return;                                 // ↓ on the cube: nothing (and it doesn't leak into a shell)
+  e.preventDefault(); e.stopPropagation();
+}, true);
+function toastUndo(msg, fn) {                                            // (Riven 5) a regroup never happens silently: it comes with an undo
+  const el = document.getElementById('toast'); el.textContent = msg + '  '; const b = document.createElement('button'); b.textContent = 'undo';
+  b.onclick = () => { fn(); el.style.display = 'none'; }; el.appendChild(b); el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 6000);
+}
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.display = 'none', 1500); }
+function showMode() { toast(SH.name !== 'cube' ? 'on this shape the knob steps through the faces in order' : `knob now rolls ${kMode === 'side' ? 'side to side' : 'top to bottom'}`); }
+addEventListener('keydown', e => {
+  if (!(e.ctrlKey && e.altKey)) return;
+  const k = e.key; let hit = true;
+  if (k === 'ArrowLeft') turn(1, 0); else if (k === 'ArrowRight') turn(-1, 0); else if (k === 'ArrowUp') turn(0, -1); else if (k === 'ArrowDown') { if (fullFace >= 0) toggleFull(); else turn(0, 1); }   // ⌃⌥↓ in a face = back out (22:30)
+  else if (k === 'Enter') toggleFull(); else if (/^[1-6]$/.test(e.code.replace('Digit', ''))) { const i = +e.code.replace('Digit', '') - 1; goTo(i); select(i); }
+  else if (['Digit7', 'Digit8', 'Digit9', 'Digit0'].includes(e.code)) colorTap(['Digit7', 'Digit8', 'Digit9', 'Digit0'].indexOf(e.code) + 1);
+  else if (e.code === 'KeyJ') jumpNext(); else if (e.code === 'KeyB') goBack(); else if (e.code === 'KeyF') goForward(); else if (e.code === 'KeyH') goHome(); else if (e.code === 'Slash') showQuickRef(!qrefOpen()); else if (e.code === 'KeyW') showDrum(!drumOpen()); else if (e.code === 'KeyK') post('/config?knob=toggle'); else if (e.code === 'KeyO') sendOut();
+  else if (e.code === 'BracketLeft') twistQuarter(-1); else if (e.code === 'BracketRight') twistQuarter(1);
+  else hit = false;
+  if (hit) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+// spin (rz) steps left/right and tilt (rx) steps up/down, like Demo 02's feel; past PUSH it steps, it re-arms below RELEASE,
+// and if you keep holding it steps again every REPEAT_MS. Signs are guesses: flip them on Chris's word.
+function stepper(axis, v, now, fn) {
+  if (Math.abs(v) < RELEASE) { armed[axis] = true; return; }
+  if (Math.abs(v) > PUSH && (armed[axis] || now - heldSince[axis] > REPEAT_MS)) { fn(Math.sign(v)); armed[axis] = false; heldSince[axis] = now; }
+}
+// the solid's own transform, written only when it changes (see the 15:45 PERF note in frame). Fast Swap calls it too: it turns the solid
+// while the frame loop stands still behind a full-screen face.
+function placeSolid(shown) { const qk = shown.map(v => v.toFixed(5)).join() + SH.r; if (frame.tf !== qk) { frame.tf = qk; cube.style.transform = `translateZ(${-SH.r}px) ` + qMatrix(shown).toString(); } }
+// ⛔ 2026-11-17 THE PUSH WAS READ BACKWARDS, on every 3D mouse, since the first night ("signs are guesses"). 3Dconnexion devices report
+// the ball pushed DOWN as a POSITIVE third value (PySpaceMouse's device table scales it by -1 to get "up"); this page took NEGATIVE
+// as the push. So on a real ball a push was a "pull": it closed the drum and the Rolodex instead of going, it left a face instead of
+// going into it, and going into a face took a pull. Every scripted test passed, because the scripts pushed the same wrong way. Now:
+// pushIn() is + for a push down (in) and − for a lift (out), and ⚙ → Motion has a flip for it like the other three.
+const pushIn = () => ((prefs.flip || {}).z ? -1 : 1) * sbT[2];
+function pushPull() {                                                    // a push or a pull counts once per press; returns whether the push axis clearly leads
+  const z = pushIn(), other = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
+  const zWins = navMode() !== 'hand' || Math.abs(z) > (drumOpen() ? 1.0 : 1.5) * other;
+  if (zWins && z > PRESS && zArmed) { zArmed = false; pressDown(); } else if (zWins && z < -PRESS && zArmed) { zArmed = false; pullUp(); }
+  else if (Math.abs(z) < RELEASE) zArmed = true;
+  return zWins;
+}
+let last = performance.now();
+function frame(now) {
+  const k = Math.min(3, (now - last) / 16.667); last = now;
+  if (now - sbAt > 250) { sbT = [0, 0, 0]; sbR = [0, 0, 0]; }
+  // 22:28 Chris: side to side gets stuck. Only the STRONGER of spin/tilt may step (a twist always leaks a little tilt, which used to
+  // park the cube on the top/bottom face, where side steps were locked out).
+  const z = sbT[2];                                                     // (only its SIZE is used below; which way is "push" lives in pushIn)
+  if (ballHush && Math.max(...sbT.map(Math.abs), ...sbR.map(Math.abs)) < RELEASE) ballHush = false;   // the hand let go: the ball is live again
+  // 07:55 Chris: "certain directions just fight you". A firm tilt LEAKS into push-down, which used to count as select and cut the roll
+  // mid-move (the spring then yanked it back). In hand mode a push/pull only counts when it clearly beats every other axis.
+  // (16:20) on the DRUM a push only has to beat the tilt, not by 50%: tilt leaks into z as a SMALL push (well under the tilt itself), and
+  // Chris rolls then pushes in one motion, so his push arrives with tilt still in it. The solid keeps the stricter 1.5×.
+  const zWins = pushPull();
+  // 11:16 Chris: "are the motes drawing even when in fullscreen? … all background animations should be stopped in full screen". They
+  // were (gl.js redrew the solid + motes ~30×/s behind an opaque full-screen terminal). Now in full screen the frame stops HERE: input
+  // above still works (pull up / push), everything below (physics, the solid, the offering, face upkeep) and gl.js stand still.
+  if (fullFace >= 0 && !zooming) roloWatch(now);                        // inside a face: a firm twist opens the Rolodex (2026-11-17)
+  window.cubeFull = fullFace >= 0 && !zooming;
+  if (window.cubeFull) { requestAnimationFrame(frame); return; }
+  const spinV = Math.abs(z) > 120 ? 0 : -sbR[2], tiltV = Math.abs(z) > 120 ? 0 : sbR[0];   // pushing leaks twist: no turning mid-push
+  const analog = navMode() !== 'step' && fullFace < 0;
+  if (!analog && !drumOpen()) {
+    if (Math.abs(spinV) >= Math.abs(tiltV)) { stepper('y', spinV, now, s => turn(s, 0)); armed.p = true; }
+    else { stepper('p', tiltV, now, s => turn(0, s)); armed.y = true; }
+  }
+  const leanY = analog ? 0 : Math.max(-1, Math.min(1, spinV / 350)) * 10, leanP = analog ? 0 : Math.max(-1, Math.min(1, tiltV / 350)) * 8;   // lean the way it will step
+  const ease = 1 - Math.pow(0.9, k);                                   // slow, calm settle (about half a second)
+  twistStep(Math.min(0.05, k / 60));
+  if (analog) physics(Math.min(0.05, k / 60), spinV, tiltV, Math.abs(z) > 120 && zWins); else Q = qSlerp(Q, Qt, ease);
+  const shown = qMul(qMul(qAxis(0, 1, 0, leanY), qAxis(1, 0, 0, -leanP)), Q);
+  // 15:45 PERF (Chris: "slower than hell… something seriously making this app lag"). Measured on a copy with his settings: this loop
+  // rewrote the solid's transform, the front / mark classes and the offered face's --lift + transition EVERY frame, moving or not, and
+  // each write recomposited all 18 faces at 60 fps (GPU process 10% → 1% with the loop paused; on his Mac it lands in WindowServer).
+  // Now every DOM write happens only when its value changes; a still solid writes nothing.
+  // (the spring re-lands a still solid every frame and float rounding makes each landing differ in the 15th decimal: compare at 5 decimals,
+  //  far below a pixel, or the transform is rewritten 60×/s anyway — measured 120 writes in 2 s at rest before this)
+  placeSolid(shown);
+  offer(now);
+  window.cubeShown = shown; window.cubeSH = SH; window.cubePrefs = prefs;       // handed to gl.js (the WebGL body) every frame
+  if (!document.body.classList.contains('gl')) light(shown);
+  const fr = frontFace(), mk = selFace !== fr ? selFace : -1;
+  if (frame.fr !== fr || frame.mk !== mk) { frame.fr = fr; frame.mk = mk; faces.forEach((f, j) => { f.el.classList.toggle('front', j === fr); f.el.classList.toggle('mark', j === mk); }); }
+  // 6 (Riven): the space steps back while something waits for Chris or he's inside a face (prefs.bgDim of the way; 0 = never)
+  const bgLevel = (fullFace >= 0 || faces.some(f => waiting(f.i))) ? 1 - (prefs.bgDim ?? 0.6) : 1; window.cubeBg = bgLevel;
+  if (frame.bg !== bgLevel) { frame.bg = bgLevel; document.getElementById('bg').style.opacity = bgLevel; }   // write styles only when they change
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+setInterval(() => { const b = document.getElementById('ballread'); if (b && help.classList.contains('on')) b.textContent = ballRead || '—'; }, 120);
+setTimeout(() => faces.forEach(refit), 300);
+// ---------- Priority 1: colours and groups (Chris + Riven's spec, 2026-10-28). Colours belong to the FACE (= its shell and session),
+// saved per computer in ~/.config/3d-terminal/config.json → "prefs". The default palette is the Okabe-Ito set (orange, sky blue, yellow,
+// pink-purple): it stays tellable apart for colour-blind eyes, by brightness as well as hue. Every slot is changeable in the ⚙ panel.
+const DEF = { colors: {}, palette: ['#e69f00', '#56b4e9', '#f0e442', '#cc79a7'],
+  buttons: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 5, quickref: 11, back: 12, forward: 10 },   // Chris's Spaceball layout (11:23; B = quick reference 13:50; 13:58 the right-hand column A/B/C top→bottom = history forward / card / history back, jump → 5)
+  glow: 1, lowfx: false, cluster: false, attnDone: false, quiet: false, ageMin: 15, fastSwap: false,
+  shape: 'cube', layouts: {}, theme: 'liminal', motes: 1, nav: 'hand', motion: {}, click: true, flip: {},   /* no handSrc default: it follows the device (LAYOUTS[pid].roll) unless he picks one (11:2x fix) */ cubeClassic: false };
+let prefs = JSON.parse(JSON.stringify(DEF));
+function loadPrefs(p) { prefs = Object.assign(JSON.parse(JSON.stringify(DEF)), p, { buttons: Object.assign({}, DEF.buttons, p.buttons || {}) }); applyPrefs(); }
+function savePrefs() { post('/config?prefs=1', JSON.stringify(prefs)); }
+function applyPrefs() { document.body.classList.toggle('lowfx', !!prefs.lowfx); document.documentElement.style.setProperty('--glow', prefs.glow);
+  if (SH.name !== prefs.shape) setShape(prefs.shape); paint(); layout(); tintTris(); seedMotes(); bgPrev = 0; renderPrefs(); renderMotion(); renderAttn();
+  window.cubePrefs = prefs; if (window.GL) window.GL.apply(); openWebFaces(); }
+addEventListener('gl-ready', () => { window.cubePrefs = prefs; window.GL.apply(); renderPrefs(); });
+const cur = () => (fullFace >= 0 ? fullFace : frontFace());              // the face you are looking at (the same rule full screen uses)
+function paint() { if (typeof tintTris === 'function' && triEls) tintTris();
+  faces.forEach(f => { const g = prefs.colors[f.i]; f.el.classList.toggle('colored', !!g); if (g) f.el.style.setProperty('--gc', prefs.palette[g - 1]); });
+  const g = fullFace >= 0 && prefs.colors[fullFace]; full.classList.toggle('colored', !!g); if (g) full.style.setProperty('--gc', prefs.palette[g - 1]);
+}
+// Which sessions a shape shows: prefs.layouts[shape] = the shells on its screens, slot by slot (default: shells 1…n). Sessions that a
+// shape has no room for are PARKED: still running, listed in ⚙, one click brings any of them onto the face in front. Nothing is ever
+// closed by changing shape or grouping.
+const shellsFor = name => { const L = prefs.layouts[name]; return Array.isArray(L) && L.length === SHAPES[name].n ? L : Array.from({ length: SHAPES[name].n }, (_, i) => i); };
+function layout(force, keepArg) {                                                 // place sessions on the screens; group by colour walks the face order
+  const L = shellsFor(SH.name), byCol = prefs.cluster ? [...L].sort((a, b) => ((prefs.colors[a] || 9) - (prefs.colors[b] || 9)) || L.indexOf(a) - L.indexOf(b)) : L;
+  const ns = Array(18).fill(-1); byCol.forEach((sh, k) => { ns[sh] = prefs.cluster ? SH.order[k] : k; });
+  if (!force && ns.join() === slotOf.join()) return;
+  const keep = keepArg !== undefined ? keepArg : (fullFace >= 0 ? fullFace : cur()); slotOf = ns;
+  faces.forEach(f => { const on = slotOf[f.i] >= 0; f.el.style.display = on ? '' : 'none'; f.rot = 0; f.placed = false; f.el.style.transition = 'none';
+    if (on) f.el.style.transform = placeT(f.i, 0); });
+  requestAnimationFrame(() => requestAnimationFrame(() => faces.forEach(f => { f.el.style.transition = ''; })));   // no flying faces on a re-layout
+  drawTris(); if (es.readyState === 1) startShown();
+  const go = keep >= 0 && slotOf[keep] >= 0 ? keep : SH.order.map(sl => slotOf.indexOf(sl))[0];
+  Qt = [1, 0, 0, 0]; goTo(go); select(go); setTimeout(() => visible().forEach(i => refit(faces[i])), 50);
+}
+function setShape(name) {
+  if (!SHAPES[name]) name = 'cube'; if (fullFace >= 0) toggleFull();
+  const keep = selFace >= 0 ? selFace : frontFace();                    // which session you're on, worked out on the OLD shape
+  SH = buildShape(name); document.documentElement.style.setProperty('--k', SH.k); document.body.classList.toggle('overview', name !== 'cube'); layout(true, keep);
+}
+function bringHere(p) {                                                  // a parked session takes the place of the face in front of you
+  const L = [...shellsFor(SH.name)], here = cur(), k = L.indexOf(here); if (k < 0) return;
+  L[k] = p; prefs.layouts[SH.name] = L; savePrefs(); layout(true); goTo(p); select(p); renderPrefs();
+}
+// ---------- the metal structure: triangles are lit plates; each picks up a faint tint from a coloured screen beside it
+let triEls = [];
+function drawTris() {
+  triEls.forEach(t => t.remove()); const a = SH.a, h = a * Math.sqrt(3) / 2;
+  triEls = SH.tris.map(t => { const el = document.createElement('div'); el.className = 'tri metal';
+    Object.assign(el.style, { width: a + 'px', height: h + 'px', left: (S / 2 - a / 2) + 'px', top: (S / 2 - 2 * h / 3) + 'px',
+      transformOrigin: `${a / 2}px ${2 * h / 3}px`, transform: t.m.toString() }); el.t = t; cube.appendChild(el); return el; });
+  tintTris();
+}
+function tintTris() { triEls.forEach(el => { const sh = el.t.near.map(sl => slotOf.indexOf(sl)).find(i => i >= 0 && prefs.colors[i]);
+  el.style.setProperty('--tc', sh !== undefined ? prefs.palette[prefs.colors[sh] - 1] + '26' : 'transparent'); }); }
+// ---------- lighting: a key light up-left-front + the viewer; each plate's brightness and highlight from its real normal every frame
+const LIGHT = V.norm([-0.45, -0.6, 0.66]), HALF = V.norm(V.add(LIGHT, [0, 0, 1]));
+function lightEl(el, q, n, u) {
+  const w = rotV(q, n), d = Math.max(0, V.dot(w, LIGHT)), sp = Math.pow(Math.max(0, V.dot(w, HALF)), 30);
+  const yw = V.mul(rotV(q, u), -1), xw = V.cross(yw, w), L = (0.3 + 0.7 * d).toFixed(3);
+  if (el._L === L && Math.abs((el._sp || 0) - sp) < 0.01) return; el._L = L; el._sp = sp;
+  el.style.setProperty('--L', L); el.style.setProperty('--sp', sp.toFixed(3));
+  el.style.setProperty('--sx', (50 + 60 * V.dot(HALF, xw)).toFixed(1) + '%'); el.style.setProperty('--sy', (50 + 60 * V.dot(HALF, yw)).toFixed(1) + '%');
+}
+function light(q) { if (prefs.lowfx) return; visible().forEach(i => { const sl = SH.slots[slotOf[i]]; lightEl(faces[i].el, q, sl.n, sl.u); });
+  triEls.forEach(el => lightEl(el, q, el.t.n, el.t.u)); }
+// ---------- MATRIX RAIN (Chris 08:31: "we geeks love the matrix code — it's in Alcove and every app I have… we need it as another
+// background"). Ported AS IS from Alcove (app/index.html, BG.drawMatrix, 2026-10-28): the same glyphs, columns, bright head, 0.11 fade
+// trails, 58 ms step and Alcove's ten palettes. One class, used by both the plain look (the 2D canvas) and gl.js (as the scene's backdrop).
+const MATRIX_PALETTES = [
+  { id: "cyber", name: "Cyber", bg: "#020705", main: "#00ff9c", head: "#d8ffec" }, { id: "gothic", name: "Gothic", bg: "#070205", main: "#c4163a", head: "#ffd1dc" },
+  { id: "nebula", name: "Nebula", bg: "#07030c", main: "#ff4fd8", head: "#ffe0fb" }, { id: "purple", name: "Purple", bg: "#06030d", main: "#9d6bff", head: "#eadcff" },
+  { id: "blues", name: "Blues", bg: "#020610", main: "#3fb8ff", head: "#d9f2ff" }, { id: "cobalt", name: "Cobalt", bg: "#01030f", main: "#2f6bff", head: "#d6e2ff" },
+  { id: "amber", name: "Amber", bg: "#0a0600", main: "#ffb000", head: "#fff0cc" }, { id: "ice", name: "Ice", bg: "#02080b", main: "#7fe7ff", head: "#ffffff" },
+  { id: "toxic", name: "Toxic", bg: "#040800", main: "#b6ff00", head: "#f3ffcc" }, { id: "synthwave", name: "Synthwave", bg: "#0b0213", main: "#ff6ec7", head: "#fff0fa" }];
+class MatrixRain {
+  constructor(ctx, w, h, density = 1) { this.c = ctx; this.w = w; this.h = h; this.fs = 16; this.colW = Math.max(9, 20 / density); this.acc = 0;
+    const cols = Math.ceil(w / this.colW); this.drops = Array.from({ length: cols }, () => -Math.random() * (h / this.fs)); this.speeds = Array.from({ length: cols }, () => 0.55 + Math.random() * 0.9);
+    const p = this.pal(); ctx.fillStyle = p.bg; ctx.fillRect(0, 0, w, h); }
+  pal() { return MATRIX_PALETTES.find(p => p.id === prefs.matrixPalette) || MATRIX_PALETTES[0]; }
+  step(dt) {                                                             // true when it drew (so a GPU copy knows to refresh)
+    this.acc += dt; let steps = 0; while (this.acc >= 58 && steps < 3) { this.acc -= 58; steps++; } if (!steps) return false;
+    const p = this.pal(), c = this.c, fs = this.fs, CH = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ=+*<>:|";
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(p.bg.slice(i, i + 2), 16));
+    for (let s = 0; s < steps; s++) {
+      c.fillStyle = `rgba(${r},${g},${b},0.11)`; c.fillRect(0, 0, this.w, this.h); c.font = `${fs}px "MS Gothic", Consolas, monospace`; c.textBaseline = "top";
+      for (let i = 0; i < this.drops.length; i++) { const y = Math.floor(this.drops[i]) * fs, x = i * this.colW;
+        if (y >= 0) { c.fillStyle = p.main; c.fillText(CH[(Math.random() * CH.length) | 0], x, y - fs); c.fillStyle = p.head; c.fillText(CH[(Math.random() * CH.length) | 0], x, y); }
+        this.drops[i] += this.speeds[i]; if (y > this.h && Math.random() > 0.972) { this.drops[i] = -Math.random() * 12; this.speeds[i] = 0.55 + Math.random() * 0.9; } }
+    }
+    return true;
+  }
+}
+window.MatrixRain = MatrixRain; window.MATRIX_PALETTES = MATRIX_PALETTES;
+let rain2d = null;
+
+// ---------- the space the solid lives in (Chris: "aetherial… a liminal space… dust motes and sparklies… over a super deep grey
+// gradient… maybe just black… adjustable like a theme"). Themes: liminal (deep grey haze, drifting motes, rare sparkles) · void
+// (black, nothing) · classic (the original violet glow). Motes: 0 = off … 2 = thick. Low effects freezes it.
+const bg = document.getElementById('bg'), bgc = bg.getContext('2d'); let motes = [], bgLast = 0;
+function sizeBg() { const d = Math.min(2, devicePixelRatio || 1); bg.width = innerWidth * d; bg.height = innerHeight * d; bgc.setTransform(d, 0, 0, d, 0, 0); seedMotes(); }
+function seedMotes() { rain2d = null; const n = Math.round(140 * (prefs.theme === 'liminal' ? prefs.motes : 0));
+  motes = Array.from({ length: n }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, z: 0.3 + Math.random() * 0.7,
+    r: 0.4 + Math.random() * 1.6, a: 0.08 + Math.random() * 0.35, ph: Math.random() * 6.28, sp: 0 })); }
+function drawBg(now) {
+  const W = innerWidth, H = innerHeight, t = prefs.theme;
+  if (t === 'void') { bgc.fillStyle = '#000'; bgc.fillRect(0, 0, W, H); return; }
+  if (t === 'matrix') { if (!rain2d) rain2d = new MatrixRain(bgc, W, H, prefs.motes || 1); rain2d.step(Math.min(64, now - bgLast)); bgLast = now; return; }
+  const g = bgc.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.max(W, H) * 0.75);
+  if (t === 'classic') { g.addColorStop(0, '#15112a'); g.addColorStop(0.7, '#07060d'); g.addColorStop(1, '#07060d'); }
+  else { g.addColorStop(0, '#1d1d22'); g.addColorStop(0.45, '#101013'); g.addColorStop(1, '#030304'); }
+  bgc.fillStyle = g; bgc.fillRect(0, 0, W, H);
+  if (t !== 'liminal') return;
+  const dt = Math.min(100, now - bgLast); bgLast = now;
+  for (const m of motes) {
+    m.ph += dt * 0.0004; m.y -= dt * 0.006 * m.z; m.x += Math.sin(m.ph) * 0.05 * m.z * dt * 0.06;
+    if (m.y < -4) { m.y = H + 4; m.x = Math.random() * W; }
+    if (!m.sp && Math.random() < 0.000003 * dt) m.sp = 1;               // now and then a mote catches the light (about one at a time)
+    const al = m.a * (0.75 + 0.25 * Math.sin(m.ph * 3)) + m.sp * 0.8, rr = m.r * m.z + m.sp * 1.5;
+    bgc.fillStyle = `rgba(220,225,255,${al.toFixed(3)})`; bgc.beginPath(); bgc.arc(m.x, m.y, rr, 0, 6.283); bgc.fill();
+    if (m.sp > 0.05) { bgc.strokeStyle = `rgba(255,255,255,${(m.sp * 0.7).toFixed(3)})`; bgc.lineWidth = 0.7; const L = 6 * m.sp + 2;
+      bgc.beginPath(); bgc.moveTo(m.x - L, m.y); bgc.lineTo(m.x + L, m.y); bgc.moveTo(m.x, m.y - L); bgc.lineTo(m.x, m.y + L); bgc.stroke(); m.sp *= 0.97; }
+    else m.sp = 0;
+  }
+}
+let bgPrev = 0;
+function bgLoop(now) { if (!document.hidden && fullFace < 0 && !document.body.classList.contains('gl') && now - bgPrev > (document.hasFocus() ? 32 : 250) && !(prefs.lowfx && bgPrev)) { bgPrev = now; drawBg(now); } requestAnimationFrame(bgLoop); }   // in GL mode the space is drawn by gl.js
+addEventListener('resize', sizeBg);
+function assignColor(g) {
+  const i = cur(), was = prefs.colors[i]; if (prefs.colors[i] === g) delete prefs.colors[i]; else prefs.colors[i] = g;
+  savePrefs(); paint(); layout(); renderAttn(); const msg = prefs.colors[i] ? `face ${i + 1} → colour ${g}` : `face ${i + 1}: colour cleared`;
+  if (prefs.cluster) toastUndo(msg + ' (faces regrouped)', () => { if (was) prefs.colors[i] = was; else delete prefs.colors[i]; savePrefs(); paint(); layout(); renderAttn(); }); else toast(msg);
+}
+function cycleColor(g) {                                                 // next face with colour g after the one you're on
+  const list = faces.map(f => f.i).filter(i => prefs.colors[i] === g && slotOf[i] >= 0); if (!list.length) { toast(`no face is colour ${g} yet: hold the button to paint the face in front`); return; }
+  const i = list.find(x => x > cur()) ?? list[0]; openFace(i, fullFace >= 0);
+}
+function isolate(g) { faces.forEach(f => f.el.classList.toggle('dim', !!g && prefs.colors[f.i] !== g)); }
+const taps = {};
+// 11:20 Chris: "press 1, and you cycle through group 1 and so on". Colour buttons now NAVIGATE: tap = the next face in that colour group
+// (at once, no double-tap wait). Painting is the deliberate one: HOLD the ball button (0.5 s) = paint the face in front (hold again =
+// clear). Keyboard (Ctrl+Option+7–0, where holding just auto-repeats): tap = cycle, double-tap = paint. (Hold-to-dim is retired.)
+function colorTap(g) {                                                   // keyboard: one tap = next face of the colour · two quick taps = paint
+  const t = taps[g] || (taps[g] = { n: 0 }); t.n++; clearTimeout(t.timer);
+  t.timer = setTimeout(() => { const n = t.n; t.n = 0; n >= 2 ? assignColor(g) : cycleColor(g); }, 320);
+}
+function colorDown(g) { const t = taps[g] || (taps[g] = { n: 0 }); t.held = false; t.hold = setTimeout(() => { t.held = true; assignColor(g); }, 500); }
+function colorUp(g) { const t = taps[g]; if (!t) return; clearTimeout(t.hold); if (t.held) t.held = false; else cycleColor(g); }
+
+// ---------- Priority 2: Attention Routing. The server tells us (from Claude Code's own hooks) which faces wait on a person. A waiting
+// face pulses in its own colour; a small list top-right names the others while you work. Nothing here ever types, answers, approves or
+// takes your keyboard away: a notice only moves you when YOU click it or press jump. Looking at a face never clears it; × dismisses.
+const att = faces.map(() => ({ s: 'working', r: '', since: 0, dismissed: false }));
+// 2026-11-13 Chris: "it should only ask for me if there is an active completion and it needs input": a finished turn no longer flags a face unless you turn it on (new key attnDone, default off: the old attnFinished was saved as true in everyone's prefs)
+const waiting = i => att[i].s === 'needs' && !att[i].dismissed && (prefs.attnDone || !att[i].r.startsWith('finished'));
+const attnq = document.getElementById('attnq');
+function renderAttn() {
+  faces.forEach(f => { const w = waiting(f.i); f.el.classList.toggle('attn', w); f.hdr.lastChild.textContent = w ? '◆! ' + att[f.i].r : ''; });
+  const here = fullFace >= 0 ? fullFace : selFace;
+  const list = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
+  attnq.replaceChildren(...(prefs.quiet ? [] : list.map(i => {
+    const d = document.createElement('div'); d.className = 'aq'; d.dataset.f = i;
+    d.textContent = `◆! Face ${i + 1} · ${faces[i].title || 'shell'} · ${att[i].r}`;
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×'; x.title = 'dismiss (it comes back if it asks again)';
+    x.onclick = e => { e.stopPropagation(); att[i].dismissed = true; renderAttn(); };
+    d.appendChild(x); d.onclick = () => jumpTo(i); return d;
+  })));
+  tint();
+}
+function mix(hex, t) { const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + (255 - v) * t));
+  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join(''); }
+function tint() {                                                        // the longer a face waits, the closer its pulse gets to white
+  faces.forEach(f => { if (!waiting(f.i)) return; const g = prefs.colors[f.i], base = g ? prefs.palette[g - 1] : '#c9b8ff';
+    const t = prefs.ageMin > 0 ? Math.min(1, (Date.now() - att[f.i].since) / (prefs.ageMin * 60000)) : 0, c = mix(base, t * 0.85);
+    f.el.style.setProperty('--pc', c); const q = attnq.querySelector(`[data-f="${f.i}"]`); if (q) q.style.setProperty('--pc', c); });
+}
+setInterval(tint, 2000);
+// 13:55 Chris: "nothing to go back to" after moving by hand, then: "shouldn't it remember the last several faces you were on? forward
+// moves up to the end of the list and back walks back through the stack." So: a browser-style history. noteVisit() runs whenever the
+// solid locks onto a face (physics) — rolling, clicking, colours, home, jumps all count. Back / forward move a cursor through the list
+// without recording their own landing; going somewhere NEW from the middle cuts off the forward part. Up to 20 places.
+const hist = []; let hpos = -1, histNav = 0;
+function noteVisit(i) {
+  if (performance.now() < histNav) { histNav = 0; return; }                // this landing IS a back / forward step
+  if (hpos >= 0 && hist[hpos].i === i) return;
+  hist.splice(hpos + 1); hist.push({ i, full: false }); if (hist.length > 20) hist.shift(); hpos = hist.length - 1;
+}
+function histGo(d) {
+  let n = hpos + d; while (n >= 0 && n < hist.length && hist[n].i === cur() && !hist[n].full) n += d;   // skip where you already are
+  if (n < 0 || n >= hist.length) { toast(`${d < 0 ? 'nothing to go back to yet' : 'nothing further forward'}  ·  history: ${hist.length ? hist.map((e, k) => (k === hpos ? '[' + (e.i + 1) + ']' : e.i + 1)).join(' ') : 'empty (it fills as you land on faces)'}`); return; }
+  hpos = n; const c = hist[n]; if (c.i !== frontFace()) histNav = performance.now() + 3000;
+  openFace(c.i, c.full); toast(`${d < 0 ? 'back' : 'forward'} to face ${c.i + 1}  ·  ${n + 1} of ${hist.length}`);
+}
+// 09:46 Chris: with only the Spaceball it took "button 6, navigate and press, button 6 back, pull face to focus, deal with it, push out,
+// button 6 again, repeat". Now ONE press of jump rolls to the oldest waiting face AND zooms in; ONE press of back returns exactly where
+// he was. openFace sequences the zooms: leaving one full-screen face finishes its zoom-out before rolling and zooming into the next
+// (before, the second zoom fired mid-animation and was silently ignored).
+// ⛔ 14:35: an edit at 13:56 (history back/forward) cut this function out by position and nobody noticed for 40 minutes: jump, the drum,
+// history back/forward and colour taps all silently threw. tests/maths.test.mjs now extracts it (and the other navigators), so a missing
+// one fails the test run.
+function openFace(i, wantFull) {
+  const go = () => { if (wantFull) enterFace(i); else { goTo(i); select(i); } renderAttn(); };
+  if (fullFace === i) { if (!wantFull) toggleFull(); return; }
+  if (fullFace >= 0 && wantFull && prefs.fastSwap && fastSwap(i)) { renderAttn(); return; }   // FAST SWAP (2026-11-17): from inside one face straight into another
+  if (fullFace >= 0) { toggleFull(); const t0 = performance.now(); (function w() { if (!zooming || performance.now() - t0 > 1500) go(); else setTimeout(w, 30); })(); }
+  else go();
+}
+function jumpTo(i) {                                                     // go to a waiting face and straight in, remembering exactly where you were
+  const here = fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace()); if (here === i) return;
+  if (hpos < 0 || hist[hpos].i !== here) noteVisit(here); hist[hpos].full = fullFace >= 0; openFace(i, true);   // back returns exactly here
+}
+// HAND-OFF (Chris 2026-11-12: "throw them onto a face… and back again"): server.py moves the conversation, the page just goes to it.
+function arrive(i, name) {                                               // parked on this shape? it takes the place of the face in front
+  if (slotOf[i] < 0) bringHere(i);
+  if ((fullFace >= 0 ? fullFace : (selFace >= 0 ? selFace : frontFace())) === i) openFace(i, true); else jumpTo(i);
+  toast(`${name || 'a session'} is on face ${i + 1} now  ·  Ctrl+Option+O sends it back to a Terminal window`);
+}
+function sendOut() {                                                     // the face you're in (or in front) → a Terminal window
+  const i = fullFace >= 0 ? fullFace : cur();
+  post(`/out?f=${i}`).then(r => r.json()).then(j => toast(j.msg)).catch(() => toast('the server did not answer'));
+}
+function jumpNext() {                                                    // oldest waiting first; nothing waiting = go back
+  const here = fullFace >= 0 ? fullFace : selFace;
+  const w = faces.map(f => f.i).filter(i => waiting(i) && i !== here).sort((a, b) => att[a].since - att[b].since);
+  if (w.length) jumpTo(w[0]); else toast(`nothing is waiting for you  ·  hold ${btnLabel(prefs.buttons.jump)} for all your sessions`);   // 14:21: falling back to history back was confusing now C does that
+}
+function goBack() { histGo(-1); }
+// 2026-11-03: tell the Lightpad what the cube shows and who is waiting; padglue.py turns it into the pad's calling corners (a face's
+// group colour) and the visit landing strip. Facts only: the pad's rules live there. Silent unless the server says a pad is here.
+let padOn = false, padLast = '', padAt = 0;
+function padReport() {
+  if (!padOn) return;
+  const mode = fullFace >= 0 ? 'face' : 'cube', face = fullFace >= 0 ? fullFace : frontFace();
+  const waitingNow = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since)
+    .map(i => ({ f: i, since: att[i].since, r: att[i].r, colour: prefs.colors[i] ? prefs.palette[prefs.colors[i] - 1] : null }));
+  const body = JSON.stringify({ mode, face, waiting: waitingNow }), now = performance.now();
+  if (body === padLast && now - padAt < 3000) return;
+  padLast = body; padAt = now; post('/blockview', body).catch(() => {});
+}
+setInterval(padReport, 700);
+function goForward() { histGo(1); }
+
+// ---------- the colour chooser (Chris 08:06: "click on the actual color chip… pick a new color from like 32 colors… the defaults aren't
+// working for me"). The browser's own colour input may not open inside the app, so this is our own grid: 8 hues × 4 (bright, light,
+// deep, neutrals). Every colour has a NAME (shown on hover and beside its slot): Chris is colour-blind, so names matter as much as hue.
+const PALETTE32 = [
+  ['#ff3b30', 'red'], ['#ff9500', 'orange'], ['#ffd60a', 'yellow'], ['#30d158', 'green'], ['#00c7be', 'teal'], ['#0a84ff', 'blue'], ['#bf5af2', 'purple'], ['#ff2d92', 'hot pink'],
+  ['#ff8a80', 'light red'], ['#ffc078', 'peach'], ['#fff59d', 'pale yellow'], ['#a5f3a0', 'mint'], ['#84ffff', 'aqua'], ['#82b1ff', 'sky blue'], ['#e1b0ff', 'lavender'], ['#ff9ecb', 'pink'],
+  ['#b71c1c', 'dark red'], ['#c25e00', 'burnt orange'], ['#b8a000', 'mustard'], ['#1b7a33', 'forest green'], ['#00796b', 'dark teal'], ['#0d47a1', 'navy blue'], ['#6a1b9a', 'deep purple'], ['#ad1457', 'raspberry'],
+  ['#ffffff', 'white'], ['#c0c0c0', 'silver'], ['#808080', 'grey'], ['#8d6e63', 'brown'], ['#9e9d24', 'olive'], ['#3949ab', 'indigo'], ['#ff00ff', 'magenta'], ['#00e5ff', 'cyan']];
+const OKABE = { '#e69f00': 'orange (default)', '#56b4e9': 'sky blue (default)', '#f0e442': 'yellow (default)', '#cc79a7': 'pink-purple (default)' };
+function colourName(hex) { const h = (hex || '').toLowerCase(), hit = PALETTE32.find(([c]) => c === h); return hit ? hit[1] : (OKABE[h] || h); }
+function openPalette(g, chip) {
+  closePalette(); const pop = document.createElement('div'); pop.id = 'palpop';
+  pop.innerHTML = `<div class="palttl">colour ${g}: pick one</div>` + PALETTE32.map(([c, n]) =>
+    `<button class="sw${prefs.palette[g - 1].toLowerCase() === c ? ' on' : ''}" data-c="${c}" title="${n}" style="background:${c}"></button>`).join('') + `<div class="palname" id="palname">${colourName(prefs.palette[g - 1])}</div>`;
+  document.body.appendChild(pop); const r = chip.getBoundingClientRect();
+  pop.style.top = Math.min(innerHeight - pop.offsetHeight - 8, r.bottom + 6) + 'px'; pop.style.left = Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.left - 20)) + 'px';
+  pop.querySelectorAll('.sw').forEach(b => { b.onmouseenter = () => { document.getElementById('palname').textContent = b.title; };
+    b.onclick = e => { e.stopPropagation(); prefs.palette[g - 1] = b.dataset.c; savePrefs(); paint(); tint(); renderAttn(); closePalette(); renderPrefs(); }; });
+  pop.onclick = e => e.stopPropagation();
+}
+function closePalette() { const p = document.getElementById('palpop'); if (p) p.remove(); }
+addEventListener('click', closePalette);
+
+// ---------- MINI-BROWSER FACES (Chris 08:40: "if you can embed the browser into the actual app — then yes… as a mini browser").
+// The browser itself lives in the Tesseract app (mac/main.swift owns one real WKWebView per browser face, logged in, running).
+// This page only asks for things through window.webkit.messageHandlers.tdt and shows what comes back: a picture on the face (webSnap),
+// the title + address after each load (webNav). In full screen the app lays the live browser exactly over this face's area, under an
+// address bar here (◀ ▶ ⟳ + type an address or a search). The face's own terminal keeps running underneath, hidden.
+const NATIVE = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.tdt;
+const isWeb = i => !!(prefs.web && prefs.web[i]);
+function openWebFaces() { if (!NATIVE) return; faces.forEach(f => { f.el.classList.toggle('web', isWeb(f.i)); if (isWeb(f.i)) NATIVE.postMessage({ op: 'open', face: f.i, url: prefs.web[f.i] }); label(f); }); }
+// 15:55 Chris: "the minibrowser sessions are flashing every few seconds like a whitish color". Every refresh swapped the picture's src
+// directly, and the img (white behind it) showed white while the new JPEG decoded. Now: identical picture = no swap at all; a new one is
+// decoded off-screen first and swapped in only when it's ready.
+window.webSnap = (i, data, title, url) => { const f = faces[i], el = f.inner.querySelector('.websnap'); f.webTitle = title; f.webUrl = url; label(f);
+  if (f.snapData === data) return; f.snapData = data; const im = new Image(); im.src = data;
+  im.decode().then(() => { if (f.snapData === data) el.src = data; }, () => { if (f.snapData === data) el.src = data; }); };
+window.webNav = (i, title, url, back, fwd) => { const f = faces[i]; f.webTitle = title; f.webUrl = url; label(f);
+  if (fullFace === i) { const a = document.getElementById('addr'); if (a && document.activeElement !== a) a.value = url; } };
+function showWeb(i) { if (!NATIVE || fullFace !== i) return; const r = faces[i].host.getBoundingClientRect();
+  NATIVE.postMessage({ op: 'show', face: i, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }); }
+addEventListener('resize', () => { if (fullFace >= 0 && isWeb(fullFace)) requestAnimationFrame(() => showWeb(fullFace)); });
+function toUrl(t) { t = t.trim(); if (/^[a-z]+:\/\//i.test(t)) return t; if (!/\s/.test(t) && /\.[a-z]{2,}(\/|$)/i.test(t)) return 'https://' + t;
+  return 'https://www.google.com/search?q=' + encodeURIComponent(t); }
+function webBar(f) {
+  fullhdr.innerHTML = `<div class="wbar">${f.name} 🌐 <button data-go="back" title="back">◀</button><button data-go="forward" title="forward">▶</button><button data-go="reload" title="reload">⟳</button>` +
+    `<input id="addr" spellcheck="false" placeholder="an address or a search" value="${(f.webUrl || prefs.web[f.i] || '').replace(/"/g, '&quot;')}"><span style="opacity:.6">⌘⌥↩ = back to the cube</span></div>`;
+  fullhdr.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => NATIVE && NATIVE.postMessage({ op: 'nav', face: f.i, go: b.dataset.go }); });
+  const a = document.getElementById('addr'); a.onkeydown = e => { if (e.key === 'Enter') { const u = toUrl(a.value); a.value = u; NATIVE && NATIVE.postMessage({ op: 'open', face: f.i, url: u }); showWeb(f.i); } };
+}
+function makeWeb(i, url) { prefs.web = Object.assign({}, prefs.web || {}, { [i]: url }); savePrefs(); openWebFaces(); renderPrefs(); toast(`face ${i + 1} is a browser now`); }
+function unmakeWeb(i) { if (fullFace === i) toggleFull(); const w = Object.assign({}, prefs.web || {}); delete w[i]; prefs.web = w; savePrefs();
+  NATIVE && NATIVE.postMessage({ op: 'close', face: i }); faces[i].webTitle = faces[i].webUrl = ''; openWebFaces(); renderPrefs(); }
+let snapTurn = 0;
+// keep the faces' pictures fresh — but only the ones you can SEE (15:55 perf: it photographed every browser face every 1.5 s, full screen
+// or not, focused or not; each photo = a JPEG encode in the app + a ~150 KB string into the page + a decode + a re-raster of the face)
+setInterval(() => {
+  if (!NATIVE || document.hidden || !document.hasFocus() || fullFace >= 0) return;
+  const ws = faces.filter(f => isWeb(f.i) && slotOf[f.i] >= 0 && rotV(Q, SH.slots[slotOf[f.i]].n)[2] > 0.15); if (!ws.length) return;
+  for (let k = 0; k < Math.min(2, ws.length); k++) NATIVE.postMessage({ op: 'snap', face: ws[(snapTurn++) % ws.length].i });
+}, 3000);
+
+// ---------- THE OFFERING (Chris 09:11: "when you settle on a face… a second later, it slowly rises like 20% out of the cube, like it's
+// being offered to you — padded on start and end, like an ancient cammed machine is inside the thing"). After the solid has rested on
+// a face for prefs.offerDelay, that face rises prefs.offer % of an edge along its own normal on a cam curve (smootherstep: zero speed at
+// both ends), seats with a soft low thunk, and sinks back on its own slower cam stroke the moment anything moves, visibly, while the solid rolls on (09:13 Chris: "the reverse when you
+// leave a face… you can see it dropping back into the solid"). gl.js grows real side walls under it (cubeLift).
+const cam = t => t * t * t * (t * (t * 6 - 15) + 10);                   // smootherstep
+// 09:42 Chris: "it works, but it's very subtle… we may need more oomph". The rise now carries a touch PAST its stop (6%) on the cam,
+// then drops back and seats (that's when the thunk lands), the rest of the solid dims a little while a face is offered, and gl.js lays
+// a soft contact shadow on the solid around the block's base. Default height 35% of an edge (was 20).
+const riseCurve = t => t < 0.8 ? 1.06 * cam(t / 0.8) : 1.06 - 0.06 * cam((t - 0.8) / 0.2);
+let lift = { face: -1, v: 0, from: 0, to: 0, t0: 0, dur: 1 }, restFace = -1, restSince = 0, lastQo = [1, 0, 0, 0];
+function offer(now) {
+  const H = ((prefs.offer ?? 35) / 100) * SH.a, delay = (prefs.offerDelay ?? 1) * 1000, fr = frontFace();
+  // "still" = turned less than ~0.05° since last frame (09:1x: a 4-decimal string compare flickered on the settle's rounding and kept
+  // restarting the rest timer, so the face never rose)
+  const dq = Math.abs(Q[0] * lastQo[0] + Q[1] * lastQo[1] + Q[2] * lastQo[2] + Q[3] * lastQo[3]), still = dq > 0.9999999 && !drag && (navMode() === 'step' || settled); lastQo = Q;
+  if (!still || fr !== restFace || fullFace >= 0 || zooming) { restFace = fr; restSince = now; }
+  const want = H > 0 && still && fullFace < 0 && !zooming && now - restSince > delay ? 1 : 0;
+  const target = lift.face === fr ? want : 0;                           // a different face rests now: the risen one sinks first
+  if (target !== lift.to) { lift.from = lift.v; lift.to = target; lift.t0 = now; lift.dur = target ? 1700 * (1 - Math.min(1, lift.v)) + 1 : 900 * lift.v + 1; lift.rising = !!target; }   // 09:13 Chris: watch it drop back in as you spin away (0.9 s cam stroke)
+  const t = Math.min(1, (now - lift.t0) / lift.dur), was = lift.v; lift.v = lift.from + (lift.to - lift.from) * (lift.rising ? riseCurve(t) : cam(t)); lift.seated = lift.rising && t >= 1;
+  if (lift.face >= 0) { const el = faces[lift.face].el, lv = (lift.v * H).toFixed(2) + 'px', tr = lift.v > 0 && !lift.seated ? 'none' : '';
+    if (el._lift !== lv) { el._lift = lv; el.style.setProperty('--lift', lv); } if (el._tr !== tr) { el._tr = tr; el.style.transition = tr; } }   // (15:45 perf: only on change)
+  // 3) the rest of the solid steps back a little while a face is offered (a dark veil over the other screens, not a filter: cheap)
+  const ov = Math.max(0, Math.min(1, lift.v)).toFixed(3); if (offer.ov !== ov) { offer.ov = ov; document.documentElement.style.setProperty('--offer', ov); }
+  const offd = lift.v > 0.01 ? lift.face : -1; if (offer.offd !== offd) { offer.offd = offd; faces.forEach(f => f.el.classList.toggle('offered', f.i === offd)); }
+  if (lift.seated && !lift.thunked) { lift.thunked = true; clickSound(520, 0.18, 'sndRise'); } if (!lift.rising) lift.thunked = false;  // seated (after the overshoot): a soft low thunk
+  if (lift.v <= 0 && lift.face !== fr) { if (lift.face >= 0) { const el = faces[lift.face].el; el.style.removeProperty('--lift'); el._lift = undefined; } lift.face = fr; }
+  window.cubeLift = { face: lift.face, slot: lift.face >= 0 ? slotOf[lift.face] : -1, h: lift.v * H };
+}
+
+// ---------- MOUSE + TRACKPAD (Chris 09:07: "regular mouse/trackpad use. click and drag to spin, double click to enter a face, right
+// click to back out… and gestures"). On the solid: a drag spins it under your pointer (the front surface follows the hand) and a fling
+// coasts on the motion springs, settling on the nearest screen (classic cube: snaps); a plain click = go to that face and type there;
+// a double-click = bring it to the front and zoom in. Full screen: right-click = back out. Trackpad: two-finger swipe spins it, pinch
+// out = zoom into the face in front, pinch in = back out. (Text selection on the solid gave way to the drag; full screen keeps it.)
+// 2026-11-03 Chris: drag the cube with a finger on the Lightpad, like rolling it by hand. One pad width = PAD_PX mouse pixels
+// (x DRAGK = 180 degrees: a full wipe across rolls the solid half way round). Tune on his word.
+const DRAGK = 0.35;                                                      // degrees per pixel of drag
+const PAD_PX = 180 / DRAGK;
+const scene = document.getElementById('scene'); let drag = null, wheelT = 0, pinchSum = 0, pinchT = 0;
+// 09:18 Chris: "the faces that are upside down — how can the user re-orient them, since they don't have 3D spin in mouse mode?" →
+// Option-drag turns the solid around its centre like a dial (the angle your pointer sweeps around the middle of the window), the
+// trackpad's two-finger rotate does the same, and Ctrl+Option+[ / ] turns it a quarter. Letting go clicks it into the nearest quarter.
+// 09:21 Chris: "pad it, accel and decel". The pointer only sets where the twist is GOING (tw.pend, degrees still to turn); a critically
+// damped spring (ω = 10/s) carries the solid there: eases in from rest, glides, eases out, never overshoots. Letting go waits for the
+// glide to finish, then the motion springs click it into the nearest quarter.
+const tw = { pend: 0, vel: 0, rel: false };
+function twistStep(dt) {
+  if (!tw.pend && !tw.vel) return; const w = 10; tw.vel += (w * w * tw.pend - 2 * w * tw.vel) * dt;
+  let step = tw.vel * dt; if (Math.abs(step) > Math.abs(tw.pend)) step = tw.pend; tw.pend -= step; twistBy(step);
+  if (Math.abs(tw.pend) < 0.02 && Math.abs(tw.vel) < 0.5) { tw.pend = 0; tw.vel = 0; if (tw.rel) { tw.rel = false; release(0, 0); } }
+}
+const TWISTK = 0.75;                                                    // 09:25 Chris: a third was too soft ("three spins of monkey fingers") → 75%                                                   // 09:20 Chris: Option-drag was very sensitive → a third of the pointer's sweep
+function twistBy(deg) { Q = qNorm(qMul(qAxis(0, 0, 1, deg), Q)); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false; }
+const aroundMiddle = e => Math.atan2(e.clientY - innerHeight / 2, e.clientX - innerWidth / 2) * 180 / Math.PI;
+function twistQuarter(sign) { if (fullFace >= 0) return; Qt = qNorm(qMul(qAxis(0, 0, 1, 90 * sign), Qt)); cmdTarget = true; settled = false; present(Qt); }
+function rotateBy(dx, dy) {                                              // turn the solid by a screen-space drag
+  Q = qNorm(qMul(qAxis(1, 0, 0, -dy * DRAGK), qMul(qAxis(0, 1, 0, dx * DRAGK), Q))); Qt = Q; W = [0, 0, 0]; cmdTarget = true; settled = false;
+}
+function release(vx, vy) {                                               // let go: coast + settle (hand), or snap (classic cube)
+  if (navMode() === 'step') { goTo(frontOf(Q)); return; }
+  const k = DRAGK * Math.PI / 180 * 1000; W = [-vy * k, vx * k, 0]; cmdTarget = false; settled = false;
+}
+scene.addEventListener('mousedown', e => {
+  if (fullFace >= 0 || e.button > 2) return; const fe = e.target.closest('.face');   // left = spin · middle (wheel press) or RIGHT = twist (09:25: the trackball's right button is the steady one)
+  drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), moved: false, face: fe ? faces.findIndex(f => f.el === fe) : -1, vx: 0, vy: 0,
+           twist: e.altKey || e.button === 1 || e.button === 2, ang: aroundMiddle(e) };
+  e.preventDefault(); e.stopPropagation();                               // the terminal underneath doesn't start a text selection
+}, true);
+addEventListener('mousemove', e => {
+  if (!drag) return; const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return; drag.moved = true;
+  if (drag.twist) {                                                     // 09:28 "a tiny bit jumpy": the angle swept around the window's middle
+    // blows up near the middle (where a trackball's pointer usually sits). Use the move's sideways part over the radius, with the radius
+    // never counted as less than 200 px: far out it's exactly the swept angle, near the middle it stays calm.
+    const rx = e.clientX - innerWidth / 2, ry = e.clientY - innerHeight / 2, r = Math.hypot(rx, ry), R = Math.max(r, 200);
+    const d = (rx * dy - ry * dx) / (R * Math.max(r, 1)) * 180 / Math.PI;
+    tw.pend += d * TWISTK; drag.lx = e.clientX; drag.ly = e.clientY; return; }
+  rotateBy(dx, dy);
+  const now = performance.now(), dt = Math.max(1, now - drag.t); drag.vx = 0.6 * drag.vx + 0.4 * dx / dt; drag.vy = 0.6 * drag.vy + 0.4 * dy / dt;
+  drag.t = now; drag.lx = e.clientX; drag.ly = e.clientY;
+});
+addEventListener('mouseup', () => {
+  if (!drag) return; const d = drag; drag = null;
+  if (!d.moved) { if (d.face >= 0 && !d.twist) { select(d.face); goTo(d.face); } return; }
+  if (d.twist) { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); return; }   // finish the glide, then settle into the nearest quarter
+  release(performance.now() - d.t > 80 ? 0 : d.vx, performance.now() - d.t > 80 ? 0 : d.vy);   // a drag that stopped before letting go doesn't fling
+});
+function enterFace(i) {                                                  // bring face i to the front, then zoom in when it's there
+  if (fullFace >= 0 || i < 0 || slotOf[i] < 0) return; select(i); goTo(i); const t0 = performance.now();
+  (function wait() { if (frontFace() === i && (settled || navMode() === 'step' || performance.now() - t0 > 900)) { if (fullFace < 0) toggleFull(); } else if (performance.now() - t0 < 2000) setTimeout(wait, 40); })();
+}
+scene.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });   // no middle-click paste / autoscroll on the solid
+scene.addEventListener('dblclick', e => { const fe = e.target.closest('.face'); if (fe) enterFace(faces.findIndex(f => f.el === fe)); });
+addEventListener('contextmenu', e => { if (fullFace >= 0 && !zooming) { e.preventDefault(); toggleFull(); } else if (fullFace < 0 && scene.contains(e.target)) e.preventDefault(); });   // on the solid the right button twists, no menu
+function pinch(d) {                                                      // trackpad pinch (a wheel with ctrlKey): out = in to the face, in = back out
+  const now = performance.now(); if (now - pinchT > 400) pinchSum = 0; pinchT = now; pinchSum += d;
+  if (pinchSum < -35 && fullFace < 0) { pinchSum = 0; enterFace(frontFace()); } else if (pinchSum > 35 && fullFace >= 0) { pinchSum = 0; toggleFull(); }
+}
+scene.addEventListener('wheel', e => {
+  if (fullFace >= 0) return; e.preventDefault();
+  if (e.ctrlKey) { pinch(e.deltaY); return; }
+  if (e.altKey) { tw.pend -= (e.deltaY || e.deltaX) * 0.25; clearTimeout(wheelT); wheelT = setTimeout(() => { if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); }, 200); return; }   // Option + scroll = twist
+  rotateBy(-e.deltaX * 0.6, -e.deltaY * 0.6); clearTimeout(wheelT); wheelT = setTimeout(() => release(0, 0), 140);
+}, { passive: false });
+full.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); pinch(e.deltaY); } }, { passive: false });
+let gRot = 0, gTwisting = false;                                        // Safari's own gesture events (the app's WebKit sends these): pinch + rotate
+addEventListener('gesturestart', e => { e.preventDefault(); gRot = 0; gTwisting = false; });
+addEventListener('gesturechange', e => { e.preventDefault();
+  if (fullFace < 0 && (gTwisting || Math.abs(e.rotation) > 8)) { gTwisting = true; tw.pend += e.rotation - gRot; gRot = e.rotation; return; }   // two-finger rotate = twist
+  if (e.scale > 1.25 && fullFace < 0) enterFace(frontFace()); else if (e.scale < 0.8 && fullFace >= 0 && !zooming) toggleFull(); });
+addEventListener('gestureend', e => { e.preventDefault(); if (gTwisting) { gTwisting = false; if (tw.pend || tw.vel) tw.rel = true; else release(0, 0); } });
+
+// ---------- BALL BUTTONS (09:52 Chris: "make them mappable and look up the layouts for all Spaceballs"). One table: each action, the
+// button it's on (shown by the device's PRINTED label when we know the model, e.g. "A" for #10 on the Spaceball 5000), "change" = press
+// the one you want (the server reports the raw number back), and a ⚠ when two actions share a button. The hand-back button is the
+// server's own setting (it has to work while the page isn't listening) and keeps its own change link up top.
+const BUTTON_ACTIONS = [['select', 'select the face in front'], ['full', 'full screen on / off'], ['home', 'home (your home face, set above)'],
+  ['jump', 'jump to the oldest waiting + zoom in'], ['back', 'history back'], ['forward', 'history forward'], ['color1', 'colour 1'], ['color2', 'colour 2'], ['color3', 'colour 3'], ['color4', 'colour 4'], ['quickref', 'quick reference card']];
+let DEVICE = null;                                                       // {name, vid, pid} from the server once a 3D mouse is open
+// ---------- PER-MODEL LAYOUTS (09:55, a research pass over three independent sources that agree: Blender GHOST_NDOFManager.cc, the Linux
+// spacenavd driver src/dev.c, PySpaceMouse devices.toml; all read buttons from HID report 3, bit = button # − 1). labels: printed label
+// by button # · preset: a default map for that model (button #s). Nothing on Esc/Alt/Shift/Ctrl (people hold those). Not tested on real
+// hardware except Chris's Spaceball 5000 — one "change" press confirms any of it. SpacePilot Pro: sources DISAGREE on its numbered keys
+// → numbers only, no preset. A model's map is remembered per device (prefs.buttonsByDevice); a preset only fills a model never seen before.
+const sparse = o => o;                                                   // {button#: label}
+const L_TWO = { 1: 'Left', 2: 'Right' };
+const L_PRO = sparse({ 1: 'Menu', 2: 'Fit', 3: 'T', 5: 'R', 6: 'F', 9: '[ ]', 13: '1', 14: '2', 15: '3', 16: '4', 23: 'Esc', 24: 'Alt', 25: 'Shift', 26: 'Ctrl', 27: 'Lock' });
+const LAYOUTS = {
+  c621: { model: 'Spaceball 5000', roll: 'tilt', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C'].map((l, i) => [i + 1, l])),
+          preset: { color1: 1, color2: 2, color3: 3, color4: 4, home: 7, select: 8, full: 9, jump: 5, quickref: 11, back: 12, forward: 10 } },   // Chris 11:23: colours on 1–4, home 7, select 8, full 9, jump A, back C (5, B free; 6 = hand-back)
+  c626: { model: 'SpaceNavigator', labels: L_TWO, preset: { full: 1, jump: 2 } }, c628: { model: 'SpaceNavigator for Notebooks', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c635: { model: 'SpaceMouse Compact', labels: L_TWO, preset: { full: 1, jump: 2 } }, c62e: { model: 'SpaceMouse Wireless', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c62f: { model: 'SpaceMouse Wireless (receiver)', labels: L_TWO, preset: { full: 1, jump: 2 } }, c63a: { model: 'SpaceMouse Wireless (Bluetooth)', labels: L_TWO, preset: { full: 1, jump: 2 } },
+  c627: { model: 'SpaceExplorer', labels: Object.fromEntries(['1', '2', 'T', 'L', 'R', 'F', 'Esc', 'Alt', 'Shift', 'Ctrl', 'Fit', 'Panel', '+', '−', '2D'].map((l, i) => [i + 1, l])),
+          preset: { select: 1, full: 2, home: 11, jump: 3, back: 5, color1: 4, color2: 6, color3: 13, color4: 14 } },
+  c625: { model: 'SpacePilot', labels: Object.fromEntries(['1', '2', '3', '4', '5', '6', 'T', 'L', 'R', 'F', 'Esc', 'Alt', 'Shift', 'Ctrl', 'Fit', 'Panel', 'Zoom ±', 'Zoom ±', 'Dominant', '3D Lock', 'Config'].map((l, i) => [i + 1, l])),
+          preset: { select: 1, full: 2, home: 15, jump: 3, back: 4, color1: 7, color2: 8, color3: 9, color4: 10 } },
+  c629: { model: 'SpacePilot Pro', labels: {} },                       // sources disagree on its numbered keys: numbers only, learn by pressing
+  c62b: { model: 'SpaceMouse Pro', labels: L_PRO }, c631: { model: 'SpaceMouse Pro Wireless', labels: L_PRO }, c632: { model: 'SpaceMouse Pro Wireless (receiver)', labels: L_PRO },
+  c638: { model: 'SpaceMouse Pro Wireless (BT)', labels: L_PRO }, c652: { model: 'Universal Receiver', labels: L_PRO },
+  c633: { model: 'SpaceMouse Enterprise', labels: Object.assign({}, L_PRO, Object.fromEntries([...Array(10)].map((_, i) => [13 + i, String(i + 1)])), { 11: 'Iso' }),
+          preset: { select: 13, full: 14, home: 2, jump: 15, back: 16, color1: 17, color2: 18, color3: 19, color4: 20 } },
+};
+for (const k of ['c62b', 'c631', 'c632', 'c638', 'c652']) LAYOUTS[k].preset = { select: 13, full: 14, home: 2, jump: 15, back: 16, color1: 3, color2: 5, color3: 6, color4: 9 };
+const devLayout = () => DEVICE && LAYOUTS[DEVICE.pid];
+function btnLabel(n) { if (!n) return '—'; const L = devLayout(); return L && L.labels[n] ? `${L.labels[n]}` : `#${n}`; }
+function adoptDevice(d) {                                                // a 3D mouse appeared: give it ITS map (yours, if you ever set one)
+  DEVICE = d; const pid = d.pid, all = Object.assign({}, prefs.buttonsByDevice || {});
+  if (!prefs.buttonsDevice) { all[pid] = prefs.buttons; prefs.buttonsDevice = pid; }             // first time: what you have IS this device's map
+  else if (prefs.buttonsDevice !== pid) { all[prefs.buttonsDevice] = prefs.buttons; prefs.buttonsDevice = pid;
+    const none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
+    prefs.buttons = Object.assign({}, all[pid] || Object.assign(none, (LAYOUTS[pid] || {}).preset || DEF.buttons)); toast(`${(LAYOUTS[pid] || {}).model || d.name}: its own button map`); }
+  all[pid] = prefs.buttons; prefs.buttonsByDevice = all; savePrefs(); renderPrefs();
+}
+// ---------- small parts for the settings dialog (Alcove's language): a labelled field, a switch row, a slider with a readout, pill choices
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const fld = (label, control, note) => `<div class="field"><label>${label}</label>${control}${note ? `<div class="note">${note}</div>` : ''}</div>`;
+const tgl = (id, title, hint, on, attr = '') => `<label class="toggle"><span>${title}${hint ? `<small>${hint}</small>` : ''}</span><span class="sw"><input type="checkbox" ${id ? `id="${id}"` : ''} ${attr} ${on ? 'checked' : ''}><i></i></span></label>`;
+const rng = (attrs, label, val, shown) => fld(label, `<div class="range"><input type="range" ${attrs} value="${val}"><output>${shown ?? val}</output></div>`);
+const sel = (id, opts, cur) => `<select id="${id}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+const seg = (name, opts, cur) => `<div class="seg">${opts.map(([v, t, sub]) => `<label><input type="radio" name="${name}" value="${v}" ${cur === v ? 'checked' : ''}><span>${t}${sub ? `<small>${sub}</small>` : ''}</span></label>`).join('')}</div>`;
+const TABS = [['look', 'Look'], ['motion', 'Motion'], ['ball', 'Ball'], ['colours', 'Colours'], ['attention', 'Attention'], ['buttons', 'Buttons'], ['browser', 'Browser'], ['help', 'Help']];
+let prefsTab = 'look';
+function showTab(t) { prefsTab = t; document.querySelectorAll('#dnav .dtab').forEach(x => x.classList.toggle('on', x.dataset.t === t)); document.querySelectorAll('#prefs .sec').forEach(x => x.classList.toggle('on', x.dataset.sec === t)); }
+
+function buttonsTable() {
+  const B = prefs.buttons, tog = +document.getElementById('tog').textContent || 6, used = {};
+  Object.values(B).concat([tog]).forEach(n => { if (n) used[n] = (used[n] || 0) + 1; });
+  const L = devLayout(), h = prefs.homeFace ?? 0;
+  return `<div class="grp">Home face</div>` + fld('Your primary code window: home on the ball (and Ctrl+Option+H) goes here. Its title shows ⌂.',
+      `<div style="display:flex;gap:8px;align-items:center">` + sel('p-home', visible().map(i => [i, `${i + 1} · ${(faces[i].title || 'shell').slice(0, 40)}`]), h) +
+      `<button class="btn" id="p-homehere">The face in front</button></div>`) + `<div class="grp">Buttons</div><div class="card">${DEVICE ? `<b>${esc(L ? L.model : DEVICE.name)}</b> <span class="note">· ${DEVICE.vid}:${DEVICE.pid}</span>` : '<span class="note">No 3D mouse found yet — plug one in and reopen settings.</span>'}` +
+      (L && L.preset ? `<div style="margin-top:6px"><a class="linkbtn" href="#" id="p-preset">Use this model's suggested map</a></div>` : '') + `</div>` +
+    BUTTON_ACTIONS.map(([k, t]) => `<div class="brow"><span>${t}${used[B[k]] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(B[k])}</span><a class="linkbtn" href="#" data-learn="${k}">change</a></div>`).join('') +
+    `<div class="brow"><span>hand the ball back to your Mac${used[tog] > 1 ? ` <span class="warn">⚠ shared</span>` : ''}</span><span class="kcap">${btnLabel(tog)}</span><a class="linkbtn" href="#" id="learn">change</a></div>` +
+    `<div class="note">change = click it, then press the ball button you want. Each ball model remembers its own map.</div>` +
+    `<div class="grp">PowerMate</div>` + (knobStat === 'blocked' ? `<div class="card"><b>Blocked by macOS.</b> <span class="note">Tesseract needs <b>Input Monitoring</b>: turn Tesseract on there, then quit and reopen the app.</span> <a class="linkbtn" href="#" id="p-privacy">Open Settings</a></div>` : `<div class="note">${knobStat === 'ok' ? 'Connected.' : knobStat === 'missing' ? 'Not plugged in.' : ''}</div>`) + `<div class="brow"><span>${knobFree ? 'handed to your Mac (it scrolls there)' : 'on the cube'}</span><span class="kcap">⌃⌥K</span><a class="linkbtn" href="#" id="p-knob">${knobFree ? 'take it back' : 'hand it to the Mac'}</a></div>`;
+}
+
+// ---------- the WAITING DRUM (14:02 Chris: "hold 5 = a list of waiting sessions… push up and down on the ball and they roll past and
+// highlight, push in to go… accel, decel, each one falling into a detent… make it a faceted cylinder with each request on a face…
+// obsidian faceted cylinder with chrome end cap bearings"). Waiting sessions, oldest first; when nothing waits, every session (a switcher).
+// drumPhys is pure (tests/maths.test.mjs): p = position in facets, v = facets/s, u = the ball's push (-1..1). Held: push + a weak notch
+// spring (you feel each facet go by); let go: a firm spring to the nearest facet, a little overshoot, then it locks. Returns detents crossed.
+let knobFree = false, knobStat = '';   // knobStat (10-29): 'ok' · 'missing' · 'blocked' (macOS withholds Input Monitoring)   // 22:00: the PowerMate's own hand-back (server ?knob=toggle), like the ball's button 6
+let jHold = null; const drum = { p: 0, v: 0, n: 0, items: [], raf: 0, last: 0, front: -1 };
+const drumEl = document.getElementById('drum'), drumOpen = () => drumEl.classList.contains('on');
+function drumPhys(d, u, dt) {
+  const before = Math.round(d.p), steps = Math.max(1, Math.ceil(dt / 0.004)), h = dt / steps, held = Math.abs(u) > 0.001;
+  // d.goal (22:40, keys): an exact row to roll to; one ↑/↓ press = exactly one row. Without it, the nearest notch (the pocket).
+  const goal = held ? null : (d.goal ?? null);
+  for (let k = 0; k < steps; k++) { const off = d.p - (goal ?? Math.round(d.p));
+    const a = held ? 16 * u - 9 * off - 2.6 * d.v : -70 * off - 11 * d.v; d.v += a * h; d.p += d.v * h; }
+  if (held) d.goal = null;
+  if (!held && Math.abs(d.v) < 0.03 && Math.abs(d.p - (goal ?? Math.round(d.p))) < 0.004) { d.p = goal ?? Math.round(d.p); d.v = 0; d.goal = null; }
+  return Math.abs(Math.round(d.p) - before);
+}
+const drumIdx = d => { const n = d.wrap ? d.items.length : d.n; return ((Math.round(d.p) % n) + n) % n; };
+function drumItems(side) {                                               // side = the Rolodex inside a face: only faces with something running
+  const ago = since => { const m = Math.max(0, Math.round((Date.now() - since) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+  // 14:25 Chris: "it's always staying on 15 [a session by name]… we should be able to roll the opposite way from 1 through 16, 15". It held only the
+  // WAITING sessions (one, then). Now: every session, in face order, wrapping both ways; it opens on the oldest waiting one (else where
+  // you are); waiting rows carry ◆! with the reason and how long.
+  // 16:50 Chris (14:35): "a toggle in the settings: active waiting selector — show all or just waiting sessions… essentially we created a
+  // second version of the cube". prefs.drumAll (default on = every session). Off = just the waiting ones (all of them if none wait).
+  const w = faces.map(f => f.i).filter(i => waiting(i)).sort((a, b) => att[a].since - att[b].since), list = side ? roloRows() : (prefs.drumAll === false && w.length ? w : visible());
+  const rows = list.map(i => ({ i, title: faces[i].title || (isWeb(i) ? faces[i].webTitle || 'browser' : 'shell'),
+    why: waiting(i) ? '◆! ' + att[i].r : (i === cur() ? 'you are here' : ''), age: waiting(i) ? ago(att[i].since) : '', g: prefs.colors[i] }));
+  const start = Math.max(0, list.indexOf(!side && w.length ? w[0] : cur()));   // the drum opens on the oldest waiting; the Rolodex on where you are
+  return { waiting: w.length, rows, start };
+}
+function showDrum(on, side) {                                            // side = the Rolodex: the small reel at the right edge, inside a face
+  if (!on) { if (drum.side) roloCool = performance.now() + 400; drumEl.classList.remove('on', 'g3', 'side'); cancelAnimationFrame(drum.raf); if (drum.gl && window.GL) window.GL.drumClose(); drum.gl = false; drum.side = false; drumEl.replaceChildren(); return; }
+  showQuickRef(false); drum.ev = ''; const { waiting: anyW, rows, start } = drumItems(side);
+  if (side && rows.length < 2) { toast('no other session is running: nothing to roll to'); roloCool = performance.now() + 1500; return; }
+  drum.side = !!side; drum.busyAt = performance.now(); drum.lock = null; drum.goal = null;
+  // 14:07 Chris: "a crayon drawing… model it in actual 3D… obsidian, not cardboard". With the WebGL renderer on, gl.js draws a real
+  // obsidian reel with chrome end caps (GL.drumOpen / drumRender); the CSS drum below stays only as the fallback when WebGL is off.
+  drum.gl = !!(window.GL && window.GL.drumOpen && prefs.gl !== false);
+  // The Rolodex reads top to bottom like a list. On the 3D reel a higher position is the row ABOVE the frame, so its rows go on in
+  // reverse: a right twist (the reel rolls up) then brings the NEXT session up from below. (Seen in a test copy 2026-11-17: unreversed,
+  // it read bottom to top.) The big drum keeps the order it always had.
+  if (drum.gl) { const list = side ? rows.slice().reverse() : rows, st = side ? rows.length - 1 - start : start; drum.items = list; drum.n = list.length; drum.p = st; drum.v = 0; drum.wrap = true;
+    if (side) drumEl.innerHTML = `<div class="rolo"><div class="dstage dstage3d"></div><div class="dhint">twist to roll · push in = go · pull = close</div><div class="dball" id="dball"></div></div>`;
+    else drumEl.innerHTML = `<div class="dttl"><span>${anyW ? (prefs.drumAll === false ? `${anyW} WAITING` : `${anyW} WAITING · ${rows.length} SESSIONS`) : `${rows.length} SESSIONS · NOTHING WAITING`}</span></div>` +
+      `<div class="dhint">roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close</div><div class="dball" id="dball"></div><div class="dstage dstage3d"></div>`;
+    try { window.GL.drumOpen(drumEl.querySelector('.dstage3d'), list.map(it => ({ no: it.i + 1, title: it.title, age: it.age, mark: waiting(it.i), color: it.g ? prefs.palette[it.g - 1] : null,
+      sub: [it.why, it.g ? colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '') : ''].filter(Boolean).join(' · ') })), st, { compact: !!side });
+      drumEl.classList.add('on', side ? 'side' : 'g3'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame); return; }
+    catch (e) { console.warn('[drum] 3D failed, using the flat drum:', e); toast('3D drum failed (' + (e && e.message || e) + ') · showing the flat one'); drum.gl = false; } }
+  // ≥ 8 facets: the rows above and below stay readable; blanks never come round (rolling stops at the ends).
+  // (2026-11-17: the reset of p / v sat INSIDE that comment since 10-28, so this flat drum opened wherever the last one had stopped.)
+  drum.items = rows; drum.n = Math.max(rows.length + 2, 8); drum.wrap = false; drum.p = start; drum.v = 0; drum.front = -1;
+  const n = drum.n, dh = side ? 60 : 84, dw = side ? 300 : Math.min(640, innerWidth - 200), r = dh / (2 * Math.tan(Math.PI / n)), R = dh / (2 * Math.sin(Math.PI / n)), al = 360 / n;
+  const poly = [...Array(n)].map((_, j) => { const f = (j + 0.5) * 2 * Math.PI / n; return `${(50 + 50 * Math.cos(f)).toFixed(2)}% ${(50 + 50 * Math.sin(f)).toFixed(2)}%`; }).join(',');
+  const facesHtml = [...Array(n)].map((_, k) => { const it = rows[k];
+    const bar = it && it.g ? `background:${prefs.palette[it.g - 1]}` : '';
+    return `<div class="dface" data-k="${k}" style="transform: rotateX(${-k * al}deg) translateZ(${r.toFixed(2)}px)">` + (it ?
+      `<span class="dbar" style="${bar}"></span><span class="dno">${it.i + 1}</span><span class="dtx"><b>${esc(it.title)}</b><small>${esc(it.why)}${it.g ? ' · ' + esc(colourName(prefs.palette[it.g - 1]).replace(/\s*\(.*\)$/, '')) : ''}</small></span><span class="dage">${esc(it.age)}</span>` : '') + `</div>`; }).join('');
+  const cap = side => `<div class="dcap" style="width:${2 * R}px;height:${2 * R}px;margin:${-R}px 0 0 ${-R}px;clip-path:polygon(${poly});transform: translateX(${side * dw / 2}px) rotateY(-90deg)"></div>`;
+  const hub = side => `<div class="dhub" style="width:${R}px;height:${R}px;margin:${-R / 2}px 0 0 ${-R / 2}px;transform: translateX(${side * (dw / 2 + R * 0.24 + 18)}px) rotateY(${side * -64}deg)"></div>`;
+  drumEl.style.setProperty('--dh', dh + 'px'); drumEl.style.setProperty('--dw', dw + 'px');
+  const ttl = side ? 'RUNNING SESSIONS' : anyW ? `WAITING · ${rows.length}` : 'NOTHING WAITING · ALL SESSIONS';
+  const hint = side ? 'twist to roll · push in = go · pull = close' : `roll the ball · push in to go · pull up, ${esc(btnLabel(prefs.buttons.jump))} or Esc to close`;
+  drumEl.innerHTML = `<div class="dttl"><span>${ttl}</span></div>` +
+    `<div class="dstage">${hub(-1)}<div class="drot" id="drot">${facesHtml}${cap(-1)}${cap(1)}</div>${hub(1)}</div>` +
+    `<div class="dhint">${hint}</div>`;
+  if (side) { const w = document.createElement('div'); w.className = 'rolo'; w.append(...drumEl.childNodes); drumEl.appendChild(w); drumEl.classList.add('side'); }
+  drumEl.classList.add('on'); drum.last = performance.now(); drum.raf = requestAnimationFrame(drumFrame);
+}
+function drumFrame(now) {
+  if (!drumOpen()) return; const dt = Math.min(0.05, (now - drum.last) / 1000); drum.last = now;
+  const h = handInput(false, true), m = mo(); let u = drum.side ? roloPush(m, drum.gl) : -shape(h.iy, m); u += (drum.kick || 0); drum.kick = 0;   // push forward = the next one rolls up · the Rolodex: a right twist rolls it up
+  // 14:23 Chris: "pushing in on it (I scrolled to github) didn't go there". A push always leaks some tilt before it counts as a push, and
+  // that rolled the drum a notch. Now the moment you start pushing in, the drum freezes on the row in the frame, and that's where you go.
+  // a clear push in (z well above every other axis), not a tilt that leaks a little z
+  const pushZ = Math.abs(sbT[2]), pushOther = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
+  if (pushZ > 90 && pushZ > pushOther) { if (drum.lock == null) drum.lock = Math.round(drum.p); drum.p = drum.lock; drum.v = 0; u = 0; } else drum.lock = null;
+  if (drum.side) { if (u || Math.abs(drum.v) > 0.05 || pushZ > 60) drum.busyAt = now; else if (now - drum.busyAt > ROLO.idle) { showDrum(false); return; } }   // the Rolodex, left alone, puts itself away
+  let crossed = drumPhys(drum, u, dt); const hi = drum.items.length - 1;
+  if (!drum.wrap && (drum.p < 0 || drum.p > hi)) { drum.p = Math.max(0, Math.min(hi, drum.p)); if (Math.abs(drum.v) > 0.4) crossed = crossed || 1; drum.v = 0; }   // the ends are walls: you never roll onto an empty facet
+  if (crossed) clickSound(2600, 0.16);
+  // 16:30 a live ball readout under the drum (Chris's real ball failed where the scripted one passed): push, strongest tilt, the rule,
+  // and the drum's last decision. Read it out after one push and the next fix is a fact, not a guess.
+  if (now - (drum.hudAt || 0) > 120) { drum.hudAt = now; const pz = pushIn(), oth = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbR[0]), Math.abs(sbR[1]), Math.abs(sbR[2]));
+    const t = drum.side ? `ball · twist ${Math.round(sbR[2])} · push ${Math.round(pz)} · tilt ${Math.round(Math.max(Math.abs(sbR[0]), Math.abs(sbR[1])))} · slide ${Math.round(Math.max(Math.abs(sbT[0]), Math.abs(sbT[1])))}`
+      : `ball · push ${Math.round(pz)} · strongest tilt ${Math.round(oth)} · a push counts at ${PRESS}+ and above the tilt${drum.ev ? '  ·  last: ' + drum.ev : ''}`;
+    const el = document.getElementById('dball'); if (el && el.textContent !== t) el.textContent = t; }
+  if (drum.gl) { window.GL.drumRender(drum.p); drum.raf = requestAnimationFrame(drumFrame); return; }
+  const n = drum.n, al = 360 / n, rot = document.getElementById('drot'); if (rot) rot.style.transform = `rotateX(${drum.p * al}deg)`;
+  const fi = drumIdx(drum);
+  drumEl.querySelectorAll('.dface').forEach(el => { const k = +el.dataset.k, b = ((k - drum.p) % n + n + n / 2) % n - n / 2;
+    el.style.setProperty('--shade', Math.min(0.85, 1 - Math.cos(Math.min(Math.PI / 2, Math.abs(b) * al * Math.PI / 180)) * 0.95 + 0.05).toFixed(3)); el.classList.toggle('front', k === fi); });
+  drum.raf = requestAnimationFrame(drumFrame);
+}
+// 16:25 (found by tests/drive.mjs): a push that still has tilt in it fired, the drum closed, and the hand's leftover tilt then rolled the
+// solid OFF the face it was flying to. After the drum sends you somewhere the ball is HUSHED until your hand lets go (every axis back
+// near rest): one push, one action, like a pinball flipper.
+let ballHush = false;
+function drumGo() { ballHush = true; if (drum.lock != null) { drum.p = drum.lock; drum.lock = null; } const it = drum.items[drumIdx(drum)]; showDrum(false); if (it) jumpTo(it.i); }
+drumEl.addEventListener('wheel', e => { e.preventDefault(); drum.v += e.deltaY * 0.012; }, { passive: false });
+drumEl.addEventListener('mousedown', e => { if (drum.gl) { if (e.target.closest('.dstage3d')) drumGo(); else showDrum(false); return; } const f = e.target.closest('.dface'); if (!e.target.closest('.dstage')) { showDrum(false); return; }
+  if (f && f.classList.contains('front')) drumGo(); else if (f) { const k = +f.dataset.k, n = drum.n, b = ((k - drum.p) % n + n + n / 2) % n - n / 2; drum.v += b * 6; } });
+addEventListener('keydown', e => { if (!drumOpen() || drum.side) return; const k = e.key;   // (the Rolodex takes no keys: Esc, Enter and the arrows stay the terminal's)
+  if (k === 'Escape') showDrum(false); else if (k === 'Enter') drumGo(); else if (k === 'ArrowDown' || k === 'ArrowUp') drum.goal = (drum.goal ?? Math.round(drum.p)) + (k === 'ArrowDown' ? 1 : -1); else return;
+  e.preventDefault(); e.stopPropagation(); }, true);
+// ---------- THE ROLODEX (Chris's design spec, 2026-11-17): "With seven or eight sessions… cannot easily remember their spatial positions."
+// Inside a full-screen face the ball's twist was unused, so a firm twist now opens the drum's own reel, small, at the right edge, on the
+// session you are in. Keep twisting to roll it (his word: "a right twist rolls up and a left twist rolls down"), push in = go there, pull up
+// = close and stay. It lists only faces with something running (his word), it takes no key and no click, and left alone it closes itself.
+// It is the drum (same rows, same physics, same push-to-go): a shortcut into it, not a second list.
+const ROLO = { open: 110, hold: 90, idle: 4000, dir: -1 };             // twist needed to open · ms it must last · ms alone before it closes · dir -1 = a right twist rolls the reel UP (flip the sign on his word)
+let roloSince = 0, roloBusy = false, roloCool = 0, liveFaces = null;
+// the twist, signed the way he tuned it (Motion → flip twist): + = a right (clockwise) twist. It counts only while it is clearly the
+// strongest thing the hand is doing, so a pull up (which leaks a little twist) never opens or rolls the Rolodex.
+function roloTwist() {
+  let tw = -sbR[2]; if ((prefs.flip || {}).t) tw = -tw;
+  const other = Math.max(Math.abs(sbT[0]), Math.abs(sbT[1]), Math.abs(sbT[2]), Math.abs(sbR[0]), Math.abs(sbR[1]));
+  return Math.abs(tw) > 1.2 * other ? tw : 0;
+}
+// how hard the twist pushes the reel (-1..1). The 3D reel turns up as its position falls, the flat fallback reel the other way: same hand, same motion.
+function roloPush(m, gl) { return ballHush ? 0 : (gl ? ROLO.dir : -ROLO.dir) * shape(roloTwist(), m); }
+function roloWatch(now) {                                                // called every frame while you are inside a face
+  if (drumOpen() || roloBusy || ballHush || now < roloCool || qrefOpen() || help.classList.contains('on')) { roloSince = 0; return; }
+  if (Math.abs(roloTwist()) < ROLO.open) { roloSince = 0; return; }
+  if (!roloSince) { roloSince = now; return; }
+  if (now - roloSince >= ROLO.hold) { roloSince = 0; openRolo(); }
+}
+function openRolo() {                                                    // ask the server which faces have something running, then open on where you are
+  roloBusy = true;
+  post('/live').then(r => (r.ok ? r.json() : null)).catch(() => null).then(j => {
+    roloBusy = false; liveFaces = j && Array.isArray(j.live) ? new Set(j.live) : null;   // null = a server from before 2026-11-17 (or ps failed): go by titles
+    if (fullFace >= 0 && !zooming && !drumOpen()) showDrum(true, true);
+  });
+}
+// the Rolodex's rows: faces on this shape with something running (the server's word; else faces whose session set a title), browser
+// faces, anything waiting for you, and always the face you are on (so "you are here" is never missing). In face order.
+function roloRows() {
+  const here = cur();
+  return visible().filter(i => i === here || waiting(i) || isWeb(i) || (liveFaces ? liveFaces.has(i) : !!faces[i].title)).sort((a, b) => a - b);
+}
+// ---------- FAST SWAP (same spec): "Switch directly into the destination terminal with no zoom-out, solid rotation, or zoom-in sequence.
+// Provide brief visual confirmation of arrival." ⚙ → Look → Fast Swap. On: going from inside one face to another (the Rolodex, jump,
+// history, colour groups, a hand-off) swaps the terminals in place, turns the solid to that face unseen (pull out and you are on it),
+// and pulses the border. Off: the out / roll / in it always was. Returns false when it can't (then the caller does the cinematic move).
+function fastSwap(i) {
+  const a = fullFace; if (a < 0 || zooming || i === a || !faces[i] || slotOf[i] < 0) return false;
+  const fa = faces[a], fb = faces[i];
+  if (drumOpen()) showDrum(false);
+  // the face you leave goes back onto the solid, as zooming out leaves it
+  if (isWeb(a)) { NATIVE && NATIVE.postMessage({ op: 'hide', face: a }); fa.host.classList.remove('webhid'); }
+  fullSnap.style.display = 'none';
+  fa.inner.insertBefore(fa.host, fa.inner.querySelector('.websnap')); fa.term.options.fontSize = 10;
+  // the solid turns to the new face at once, behind the full screen
+  goTo(i); Q = Qt; W = [0, 0, 0]; cmdTarget = false; settled = true; tgtFace = i; lockedFace = i; placeSolid(Q); window.cubeShown = Q;
+  // the new face comes in, as zooming in leaves it
+  select(i); fullFace = i; noteVisit(i);
+  if (isWeb(i)) { webBar(fb); fb.host.classList.add('webhid'); }
+  full.appendChild(fb.host); fb.term.options.fontSize = 14; paint(); label(fb); refit(fa); refit(fb); fb.term.focus();
+  if (isWeb(i)) showWeb(i);
+  arrivalPulse(i); return true;
+}
+// the arrival pulse: border first, then the glow travels inward; ~0.5 s, then nothing is left. Low effects / reduced motion: the border only.
+const arriveEl = (() => { const d = document.createElement('div'); d.id = 'arrive'; d.innerHTML = '<i class="ring"></i><i class="wave"></i>'; full.appendChild(d); return d; })();
+function arrivalPulse(i) {
+  const g = prefs.colors[i]; arriveEl.style.setProperty('--ac', g ? prefs.palette[g - 1] : '#c9b8ff');
+  const [ring, wave] = arriveEl.children, calm = prefs.lowfx || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  for (const el of [ring, wave]) (el.getAnimations ? el.getAnimations() : []).forEach(an => an.cancel());
+  ring.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0.5, offset: 0.5 }, { opacity: 0 }], { duration: calm ? 320 : 500, easing: 'ease-out' });
+  if (!calm) wave.animate([{ opacity: 0, transform: 'scale(1)' }, { opacity: 0.55, transform: 'scale(.985)', offset: 0.25 }, { opacity: 0, transform: 'scale(.86)' }], { duration: 500, easing: 'cubic-bezier(.2,.7,.3,1)' });
+}
+// ---------- the QUICK REFERENCE card (13:50 Chris, button B): built fresh from the live map every time it opens
+const qref = document.getElementById('qref'), qrefOpen = () => qref.classList.contains('on');
+qref.addEventListener('mousedown', e => { if (e.target === qref) showQuickRef(false); });
+function showQuickRef(on) {
+  if (!on) { qref.classList.remove('on'); qref.replaceChildren(); return; }
+  const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, h = (prefs.homeFace ?? 0) + 1;
+  const SHORT = { select: ['Select', 'typing goes here'], full: ['Full screen', 'on / off'], home: [`Home ⌂`, `face ${h}`], jump: ['Jump in', 'tap · hold = the drum'],
+    back: ['History back', 'faces you were on'], forward: ['History forward', 'up the list again'], quickref: ['This card', 'press again to close'] };
+  [1, 2, 3, 4].forEach(g => { SHORT['color' + g] = [colourName(prefs.palette[g - 1]).replace(/\s*\(.*\)$/, '').replace(/^./, c => c.toUpperCase()), `group ${g} · tap / hold`]; });
+  const count = L ? Math.max(...Object.keys(L.labels).map(Number)) : Math.max(12, ...Object.values(B).filter(Boolean), tog);
+  const keys = [...Array(count)].map((_, i) => i + 1).filter(n => !L || L.labels[n]).map(n => {
+    const acts = Object.keys(B).filter(a => B[a] === n && SHORT[a]), mine = n === tog ? [['Ball ⇄ Mac', 'hand it back']] : [];
+    const all = acts.map(a => SHORT[a]).concat(mine), g = acts.find(a => a.startsWith('color')), bar = g ? `<i style="background:${prefs.palette[+g.slice(5) - 1]}"></i>` : '';
+    return `<div class="qk${all.length ? '' : ' free'}"><div class="qcap">${esc(btnLabel(n))}${bar}</div><b>${all.length ? all.map(([t, sub]) => `${esc(t)}<small>${esc(sub)}</small>`).join('') : 'free'}</b></div>`; }).join('');
+  const tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt', hand = navMode() === 'hand';
+  const ball = hand ? [[tilt ? 'tilt' : 'slide', 'roll toward that side'], ['twist', 'spin in place'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['let go', 'settles on a screen'], ['hold a colour', 'paint the front face'], ['twist, in a face', 'the Rolodex · push = go']]
+                    : [['twist', 'one face sideways'], ['tilt', 'one face over the top'], ['push down', 'select · again = full'], ['pull up', 'back out'], ['twist, in a face', 'the Rolodex · push = go']];
+  const kb = [['← →  (Omarchy mode)', 'previous / next face'], ['↑  (Omarchy mode)', 'into that face'], ['⌘↓  (Command)', 'back out to the cube'], ['⌘J  (Command)', 'the drum: ↑ ↓ a row · Return go · Esc'], ['← → ↑', 'roll the solid'], ['Return', 'full screen'], ['1 – 6', 'go to that face'], ['7 8 9 0', 'colour groups'], ['H', `home ⌂ ${h}`], ['J', 'jump in'], ['W', 'the waiting drum'], ['B · F', 'history back · forward'], ['[ · ]', 'quarter twist'], ['K', 'PowerMate ⇄ Mac'], ['O', 'this session out to a Terminal window'], ['/', 'this card']];
+  const line = ([k, t]) => `<div class="qline"><kbd>${esc(k)}</kbd><span>${esc(t)}</span></div>`;
+  qref.innerHTML = `<div class="qcard"><div class="qhead"><div class="qname"><svg viewBox="0 0 16 16" fill="none" stroke="#c9ccd3" stroke-width="1" stroke-linejoin="round"><rect x="1.5" y="1.5" width="13" height="13" rx=".5"/><rect x="5" y="5" width="6" height="6"/><path d="M1.5 1.5 5 5M14.5 1.5 11 5M1.5 14.5 5 11M14.5 14.5 11 11"/></svg><span>TESSERACT</span></div>` +
+    `<div class="qsub">QUICK REFERENCE · ${esc((L ? L.model : DEVICE ? DEVICE.name : 'your ball').toUpperCase())}</div></div>` +
+    `<div class="qgrp">The buttons</div><div class="qkeys">${keys}</div>` +
+    `<div class="qrow"><div><div class="qgrp">The ball</div>${ball.map(line).join('')}</div><div><div class="qgrp">Keyboard · Ctrl + Option</div>${kb.map(line).join('')}</div></div>` +
+    `<div class="qfoot">${esc(btnLabel(B.quickref))} again, Esc, or click outside to close · every detail is in ⚙ → Help</div></div>`;
+  qref.classList.add('on');
+}
+
+// ---------- the ⚙ settings dialog: seven tabs, same ids and handlers as before
+function renderPrefs() {
+  const el = document.getElementById('prefs'), keys = ['7', '8', '9', '0'];
+  const parked = faces.filter(f => slotOf[f.i] < 0 && f.seen), G = window.GL;
+  document.getElementById('dnav').innerHTML = TABS.map(([k, t]) => `<span class="dtab${prefsTab === k ? ' on' : ''}" data-t="${k}">${t}</span>`).join('');
+  document.getElementById('dsub').textContent = `${SHAPES[SH.name] ? SHAPES[SH.name].label.split(' · ')[0] : ''}${DEVICE ? ' · ' + ((devLayout() || {}).model || DEVICE.name) : ''}`;
+  const sec = (k, html) => `<div class="sec${prefsTab === k ? ' on' : ''}" data-sec="${k}">${html}</div>`;
+  el.innerHTML =
+    sec('look',
+      tgl('p-omarchy', 'Omarchy mode: keys first', 'On the cube: ← → pick a face, ↑ goes in, ⌘↓ comes back out, ⌘J the drum. Every face reads upright. Off = arrows go to the terminal.', omarchy()) +
+      tgl('p-fast', 'Fast Swap', 'Going from inside one face to another (the Rolodex, jump, history, colour groups): on = straight there, with a short pulse on its border · off = out, roll, in.', !!prefs.fastSwap) +
+      `<div class="grp">Shape</div>` + seg('shape', [['cube', 'Cube', '6 screens · full-size workspace'], ['cuboct', 'Cuboctahedron', '6 screens set in metal'], ['rhombi', 'Rhombicuboctahedron', '18 screens · an overview']], prefs.shape || 'cube') +
+      `<div class="note">Only the cube shows its screens at full size; on the others, go full screen to work.</div>` +
+      (parked.length ? `<div class="card"><b>Parked</b> <span class="note">still running · click one to put it on the face in front</span><div style="margin-top:6px">` +
+        parked.map(f => `<a class="linkbtn" href="#" data-bring="${f.i}">${f.i + 1} · ${esc((f.title || 'shell').slice(0, 28))}</a>`).join(' &nbsp;·&nbsp; ') + `</div></div>` : '') +
+      (G ? `<div class="grp">Material and light</div><div class="two">` +
+        fld('Material', sel('p-mat', Object.entries(G.MATERIALS).map(([k, m]) => [k, m.label]), prefs.material || 'brushed_steel')) +
+        fld('Light', sel('p-light', Object.keys(G.LIGHTS).map(k => [k, { room: 'studio room', rimOnly: 'rim only' }[k] || k]), prefs.light || 'room')) + `</div>` +
+        fld('Quality', sel('p-quality', G.QUALITY.map(k => [k, k]), prefs.quality || 'balanced'), 'Fast is smoothest on a busy machine.') +
+        tgl('p-bloom', 'Glow on highlights', 'A soft bloom where light catches the metal.', prefs.bloom !== false) +
+        tgl('p-gl', 'Real 3D materials', 'Off = the lighter, flat look.', prefs.gl !== false) : '') +
+      `<div class="grp">Space</div><div class="two">` +
+        fld('Background', sel('p-theme', [['liminal', 'liminal haze'], ['matrix', 'matrix rain'], ['void', 'void'], ['classic', 'classic violet']], prefs.theme || 'liminal')) +
+        (prefs.theme === 'matrix' ? fld('Rain colour', sel('p-mpal', MATRIX_PALETTES.map(p => [p.id, p.name]), prefs.matrixPalette || 'cyber')) : '<div></div>') + `</div>` +
+      rng('id="p-motes" min="0.25" max="2" step="0.25"', prefs.theme === 'matrix' ? 'Rain density' : 'Motes', prefs.motes ?? 1) +
+      tgl('p-lowfx', 'Low effects', 'No animation, no glow: the quietest look.', prefs.lowfx)) +
+    sec('motion', `<div id="motion"></div>`) +
+    sec('ball', `<div class="note">Calibration: see exactly what your ball reports. The gyro ball tilts and twists with your hand, the dot follows your pushes
+      (lift = bigger, press = smaller). Hands off, everything should sit in the middle, inside the dead-zone ring.</div>` +
+      `<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap"><canvas id="calcv" width="300" height="300" style="width:300px;height:300px;border-radius:18px;background:#07060f;border:1px solid var(--line)"></canvas>` +
+      `<div style="flex:1;min-width:260px" id="calbars"></div></div>` +
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn acc" id="cal-rest">Measure rest (hands off 3 s)</button>` +
+      `<button class="btn" id="cal-zero" ${calRest ? '' : 'disabled'}>Zero it (subtract the bias)</button><button class="btn" id="cal-clear">Clear zero + extremes</button></div>` +
+      `<div id="calrep" class="card" style="display:${calRest ? 'block' : 'none'}"></div>`) +
+    sec('colours',
+      `<div class="note">Ball: tap a colour button = go to the next face of that colour · hold it = paint the face in front (hold again = clear). Keyboard: Ctrl+Option+7–0, tap = next · double-tap = paint.</div>` +
+      [1, 2, 3, 4].map(g => `<div class="palrow"><span class="chip" data-pal="${g}" style="background:${prefs.palette[g - 1]}" title="click to choose a colour"></span>` +
+        `<span style="flex:1"><b>${colourName(prefs.palette[g - 1])}</b> <span class="note">colour ${g} · Ctrl+Option+${keys[g - 1]}</span></span>` +
+        `<button class="btn" data-assign="${g}">colour the face in front</button></div>`).join('') +
+      rng('id="p-glow" min="0" max="2" step="0.1"', 'Glow strength', prefs.glow ?? 1) +
+      tgl('p-cluster', 'Group faces by colour', 'Same colours sit next to each other. Moves faces, never sessions — with an undo.', prefs.cluster)) +
+    sec('attention',
+      `<div class="note">When a Claude session on another face needs you, that face breathes a glow in its own colour and shows ◆!. Jump: Ctrl+Option+J or your jump button · history back / forward: Ctrl+Option+B / F.</div>` +
+      tgl('p-fin', 'Also when a session finishes its turn', 'Off: only approvals and questions flag a face.', !!prefs.attnDone) +
+      tgl('p-quiet', 'Quiet', 'No list in the corner; faces still glow.', prefs.quiet) +
+      tgl('p-drumall', 'The drum shows every session', `Hold ${esc(btnLabel(prefs.buttons.jump))}: on = all your sessions, waiting ones marked ◆! (a second way round the cube) · off = only the ones waiting for you.`, prefs.drumAll !== false) +
+      `<div class="two">` + fld('Fade toward white over (minutes)', `<input type="number" id="p-age" min="0" max="600" value="${prefs.ageMin ?? 15}">`, '0 = never fade.') +
+        rng('id="p-bgdim" min="0" max="0.9" step="0.1"', 'The space steps back by', prefs.bgDim ?? 0.6, Math.round((prefs.bgDim ?? 0.6) * 100) + '%') + `</div>` +
+      `<div class="grp">Sounds</div>` +
+      tgl('p-click', 'Click', 'When a screen locks into place.', prefs.click !== false) +
+      tgl('p-sndRise', 'Thunk', 'When a face rises and seats.', prefs.sndRise !== false) +
+      tgl('p-sndAttn', 'Chime', 'The first time a session asks for you.', prefs.sndAttn !== false)) +
+    sec('buttons', buttonsTable()) +
+    sec('browser', NATIVE ?
+      `<div class="note">Turn the face in front into a small real browser. Its terminal keeps running underneath.</div>` +
+      fld('Address', `<input id="p-url" placeholder="https://…" value="https://chatgpt.com">`) +
+      `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn acc" id="p-web">Put it on the face in front</button>` +
+      `<button class="btn" data-site="https://chatgpt.com">ChatGPT</button><button class="btn" data-site="https://grok.com">Grok</button>` +
+      (isWeb(cur()) ? `<button class="btn" id="p-unweb">Face ${cur() + 1} back to a terminal</button>` : '') + `</div>` +
+      `<div class="note">In full screen: an address bar, ⌘⌥↩ back to the cube. Logins stay. Passkeys (Touch ID) can't work here — use password + code once.</div>`
+      : `<div class="note">Browser faces need the Tesseract app (not a plain browser tab).</div>`) +
+    sec('help', `<div class="note">Everything below is written from your current button map and Motion settings: change a button and this changes with it.</div>` +
+      `<div class="keys">` + helpSections().map(([t, lines]) => `<div class="card"><b>${esc(t)}</b><div>${lines.map(esc).join('<br>')}</div></div>`).join('') + `</div>`);
+  // tabs
+  document.querySelectorAll('#dnav .dtab').forEach(t => { t.onclick = () => showTab(t.dataset.t); });
+  // (every handler below is the one the old panel had, on the same ids)
+  el.querySelectorAll('[data-pal]').forEach(c => { c.onclick = e => { e.stopPropagation(); openPalette(+c.dataset.pal, c); }; });
+  el.querySelectorAll('[data-assign]').forEach(b => { b.onclick = () => assignColor(+b.dataset.assign); });
+  const pw = document.getElementById('p-web'); if (pw) pw.onclick = () => makeWeb(cur(), toUrl(document.getElementById('p-url').value));
+  el.querySelectorAll('[data-site]').forEach(b => { b.onclick = () => makeWeb(cur(), b.dataset.site); });
+  const pu = document.getElementById('p-unweb'); if (pu) pu.onclick = () => unmakeWeb(cur());
+  el.querySelectorAll('[name=shape]').forEach(r => { r.onchange = () => { prefs.shape = r.value; savePrefs(); applyPrefs(); }; });
+  el.querySelectorAll('[data-bring]').forEach(a => { a.onclick = e => { e.preventDefault(); bringHere(+a.dataset.bring); }; });
+  document.getElementById('p-theme').onchange = e => { prefs.theme = e.target.value; savePrefs(); applyPrefs(); };
+  const glSet = (id, k, v) => { const el2 = document.getElementById(id); if (el2) el2.onchange = e => { prefs[k] = v(e.target); savePrefs(); window.cubePrefs = prefs; window.GL && window.GL.apply(); }; };
+  glSet('p-mat', 'material', t => t.value); glSet('p-light', 'light', t => t.value); glSet('p-bloom', 'bloom', t => t.checked); glSet('p-gl', 'gl', t => t.checked); glSet('p-quality', 'quality', t => t.value);
+  { const r = document.getElementById('p-motes'); r.oninput = () => { r.nextElementSibling.textContent = r.value; }; r.onchange = e => { prefs.motes = +e.target.value; savePrefs(); applyPrefs(); }; }
+  const mp = document.getElementById('p-mpal'); if (mp) mp.onchange = e => { prefs.matrixPalette = e.target.value; savePrefs(); applyPrefs(); };
+  const setHome = i => { prefs.homeFace = i; savePrefs(); faces.forEach(label); renderPrefs(); toast(`face ${i + 1} is home ⌂`); };
+  const ph = document.getElementById('p-home'); if (ph) ph.onchange = () => setHome(+ph.value);
+  const phh = document.getElementById('p-homehere'); if (phh) phh.onclick = () => setHome(cur());
+  const pv = document.getElementById('p-privacy'); if (pv) pv.onclick = e => { e.preventDefault(); NATIVE && NATIVE.postMessage({ op: 'privacy', face: 0 }); };
+  const pk = document.getElementById('p-knob'); if (pk) pk.onclick = e => { e.preventDefault(); post('/config?knob=toggle'); };
+  const pp = document.getElementById('p-preset'); if (pp) pp.onclick = e => { e.preventDefault(); const was = Object.assign({}, prefs.buttons), none = Object.fromEntries(Object.keys(DEF.buttons).map(k => [k, 0]));
+    prefs.buttons = Object.assign(none, devLayout().preset); prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: prefs.buttons }); savePrefs(); renderPrefs();
+    toastUndo(`${devLayout().model}: suggested map applied`, () => { prefs.buttons = was; prefs.buttonsByDevice = Object.assign({}, prefs.buttonsByDevice, { [DEVICE.pid]: was }); savePrefs(); renderPrefs(); }); };
+  el.querySelectorAll('[data-learn]').forEach(a => { a.onclick = e => { e.preventDefault(); post(`/config?learn=${a.dataset.learn}`); toast('press the button you want on your 3D mouse…'); }; });
+  document.getElementById('learn').onclick = e => { e.preventDefault(); post('/config?learn=1'); toast('press the button you want on your 3D mouse…'); };
+  const on = (id, fn) => { document.getElementById(id).onchange = e => { fn(e.target); savePrefs(); applyPrefs(); }; };
+  { const r = document.getElementById('p-glow'); r.oninput = e => { prefs.glow = +e.target.value; r.nextElementSibling.textContent = r.value; document.documentElement.style.setProperty('--glow', prefs.glow); }; r.onchange = savePrefs; }
+  on('p-lowfx', t => { prefs.lowfx = t.checked; });
+  { const fs = document.getElementById('p-fast'); if (fs) fs.onchange = e => { prefs.fastSwap = e.target.checked; savePrefs(); toast(prefs.fastSwap ? 'Fast Swap on: straight into the face' : 'Fast Swap off: out, roll, in'); }; }
+  { const om = document.getElementById('p-omarchy'); if (om) om.onchange = e => { prefs.nav = e.target.checked ? 'omarchy' : ''; savePrefs(); present(Qt); toast(omarchy() ? 'Omarchy mode: ← → pick a face · ↑ in · ⌘↓ out · ⌘J the drum' : 'Omarchy mode off: arrows go to the terminal'); }; } document.getElementById('p-cluster').onchange = e => { const was = !e.target.checked; prefs.cluster = e.target.checked; savePrefs(); applyPrefs();
+    toastUndo(prefs.cluster ? 'faces grouped by colour' : 'faces back in their own places', () => { prefs.cluster = was; savePrefs(); applyPrefs(); }); };
+  on('p-fin', t => { prefs.attnDone = t.checked; }); on('p-quiet', t => { prefs.quiet = t.checked; }); on('p-drumall', t => { prefs.drumAll = t.checked; });
+  on('p-age', t => { prefs.ageMin = Math.max(0, +t.value || 0); });
+  { const r = document.getElementById('p-bgdim'); r.oninput = () => { prefs.bgDim = +r.value; r.nextElementSibling.textContent = Math.round(r.value * 100) + '%'; }; r.onchange = savePrefs; }
+  document.getElementById('p-click').onchange = e => { prefs.click = e.target.checked; savePrefs(); };
+  for (const k of ['sndRise', 'sndAttn']) document.getElementById('p-' + k).onchange = e => { prefs[k] = e.target.checked; savePrefs(); };
+  renderMotion(); calWire();
+}
+// ---------- BALL CALIBRATION (Chris 10:45: "a calibration screen for the Spaceball… pills for every axis moving live, plus a cool 3D of
+// a large ball with the centre dot… think up something super cool… I'm wondering if I have some axes that are a bit biased"). Shows the
+// RAW reports (before any zeroing), so a bias is visible. "Measure rest" averages 3 s of hands-off reports; an axis whose offset eats more
+// than half the dead zone is flagged; "Zero it" stores prefs.sbBias, subtracted from every reading the app uses (the es 'sb' handler).
+// If the ball sends nothing at rest (many only report changes), there is nothing to drift: the report says so.
+const sbRaw = { t: [0, 0, 0], r: [0, 0, 0], at: 0, n: 0 };
+const AXES = [['t', 0, 'Slide left / right'], ['t', 1, 'Slide forward / back'], ['t', 2, 'Push down / pull up'], ['r', 0, 'Tilt forward / back'], ['r', 1, 'Tilt left / right'], ['r', 2, 'Twist']];
+let calExt = null, calRest = null, calSampling = null, calTrail = [];
+function calFeed() {
+  const v = AXES.map(([k, i]) => sbRaw[k][i]); if (!calExt) calExt = v.map(x => [x, x]); v.forEach((x, j) => { calExt[j][0] = Math.min(calExt[j][0], x); calExt[j][1] = Math.max(calExt[j][1], x); });
+  if (calSampling) calSampling.push(v);
+}
+const live = () => { const stale = performance.now() - sbRaw.at > 250; return AXES.map(([k, i]) => (stale ? 0 : sbRaw[k][i])); };   // same 250 ms staleness the controls use
+function calWire() {
+  const r = document.getElementById('cal-rest'); if (!r) return;
+  r.onclick = () => { calSampling = []; r.disabled = true; r.textContent = 'Hands off… 3'; let n = 3; const tick = setInterval(() => { n--; r.textContent = n > 0 ? `Hands off… ${n}` : 'Measuring…';
+    if (n <= 0) { clearInterval(tick); const S = calSampling; calSampling = null; const dead = mo().dead;
+      calRest = { n: S.length, avg: AXES.map((_, j) => S.length ? S.reduce((a, s) => a + s[j], 0) / S.length : 0),
+        sd: AXES.map((_, j) => { if (S.length < 2) return 0; const m = S.reduce((a, s) => a + s[j], 0) / S.length; return Math.sqrt(S.reduce((a, s) => a + (s[j] - m) ** 2, 0) / S.length); }), dead };
+      renderPrefs(); showTab('ball'); } }, 1000); };
+  document.getElementById('cal-zero').onclick = () => { if (!calRest) return; const a = calRest.avg; prefs.sbBias = { t: a.slice(0, 3).map(Math.round), r: a.slice(3).map(Math.round) };
+    savePrefs(); toast('zeroed: the bias is subtracted from every reading now'); renderPrefs(); showTab('ball'); };
+  document.getElementById('cal-clear').onclick = () => { delete prefs.sbBias; calExt = null; calRest = null; savePrefs(); renderPrefs(); showTab('ball'); };
+  const rep = document.getElementById('calrep');
+  if (rep && calRest) { const d = calRest.dead, B = prefs.sbBias;
+    rep.innerHTML = calRest.n === 0 ? `<b>Rest: the ball sent nothing while untouched.</b> <span class="note">It only reports changes, so it can't drift at rest — nothing to zero.</span>` :
+      `<b>Rest (${calRest.n} reports in 3 s, dead zone ${d})</b>` + AXES.map(([, , t], j) => { const a = calRest.avg[j], sd = calRest.sd[j], bad = Math.abs(a) > d * 0.5, noisy = Math.abs(a) + 2 * sd > d;
+        return `<div class="brow" style="grid-template-columns:1fr auto auto"><span>${t}</span><span class="kcap">${a >= 0 ? '+' : ''}${a.toFixed(1)} ± ${sd.toFixed(1)}</span>` +
+          `<span class="${bad || noisy ? 'warn' : 'note'}">${bad ? '⚠ biased' : noisy ? '⚠ jittery' : 'centred'}</span></div>`; }).join('') +
+      (B ? `<div class="note">Zero applied: slide ${B.t.join(' / ')} · tilt + twist ${B.r.join(' / ')}</div>` : '');
+  }
+  if (!calLoop.on) { calLoop.on = true; requestAnimationFrame(calLoop); }
+}
+function calLoop() {
+  const cv = document.getElementById('calcv'); if (!cv || !help.classList.contains('on') || prefsTab !== 'ball') { calLoop.on = false; return; }
+  requestAnimationFrame(calLoop);
+  const v = live(), dead = mo().dead, B = prefs.sbBias || { t: [0, 0, 0], r: [0, 0, 0] }, biasV = [...B.t, ...B.r];
+  // the bars: raw value from the centre, dead zone shaded, extremes ticked, the stored zero marked
+  const bars = document.getElementById('calbars');
+  bars.innerHTML = AXES.map(([, , t], j) => { const x = v[j], pct = q => 50 + Math.max(-50, Math.min(50, q / 350 * 50)), e = calExt ? calExt[j] : [0, 0];
+    return `<div style="margin:7px 0"><div style="display:flex;justify-content:space-between;font-size:12px"><span class="note" style="margin:0">${t}</span><b style="font-variant-numeric:tabular-nums;color:${Math.abs(x) > dead ? 'var(--acc)' : 'var(--ink)'}">${x > 0 ? '+' : ''}${Math.round(x)}</b></div>` +
+      `<div style="position:relative;height:12px;border-radius:7px;background:rgb(255 255 255 / .06);border:1px solid var(--line);margin-top:3px;overflow:hidden">` +
+      `<div style="position:absolute;top:0;bottom:0;left:${pct(-dead)}%;width:${pct(dead) - pct(-dead)}%;background:rgb(180 156 255 / .14)"></div>` +
+      `<div style="position:absolute;top:2px;bottom:2px;left:${Math.min(50, pct(x))}%;width:${Math.abs(pct(x) - 50)}%;background:var(--acc);border-radius:5px;box-shadow:0 0 10px var(--acc)"></div>` +
+      `<div style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgb(255 255 255 / .5)"></div>` +
+      (biasV[j] ? `<div style="position:absolute;top:0;bottom:0;left:${pct(biasV[j])}%;width:2px;background:#ffb86b" title="stored zero"></div>` : '') +
+      `<div style="position:absolute;top:0;bottom:0;left:${pct(e[0])}%;width:1px;background:#fff;opacity:.6"></div><div style="position:absolute;top:0;bottom:0;left:${pct(e[1])}%;width:1px;background:#fff;opacity:.6"></div></div></div>`; }).join('') +
+    `<div class="note">${sbRaw.n ? `${sbRaw.n} reports · last ${((performance.now() - sbRaw.at) / 1000).toFixed(1)} s ago` : 'no reports yet: touch the ball'}${prefs.sbBias ? ' · zero applied (orange marks)' : ''}</div>`;
+  // the gyro ball: a glass sphere whose grid turns with the rotation axes; a glowing dot for the slide axes, its size for push/pull
+  const c = cv.getContext('2d'), W = 300, R = 118, cx = W / 2, cy = W / 2, dpr = Math.min(2, devicePixelRatio || 1);
+  if (cv.width !== W * dpr) { cv.width = cv.height = W * dpr; } c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, W);
+  const g = c.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R); g.addColorStop(0, '#2a2450'); g.addColorStop(0.7, '#0f0c22'); g.addColorStop(1, '#050410');
+  c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill(); c.strokeStyle = 'rgb(180 156 255 / .35)'; c.lineWidth = 1; c.stroke();
+  const ang = q => q / 350 * 0.8, ax = ang(v[3]), ay = ang(v[4]), az = ang(v[5]);
+  const rot = ([x, y, z]) => { let a; a = [x, y * Math.cos(ax) - z * Math.sin(ax), y * Math.sin(ax) + z * Math.cos(ax)]; a = [a[0] * Math.cos(ay) + a[2] * Math.sin(ay), a[1], -a[0] * Math.sin(ay) + a[2] * Math.cos(ay)];
+    return [a[0] * Math.cos(az) - a[1] * Math.sin(az), a[0] * Math.sin(az) + a[1] * Math.cos(az), a[2]]; };
+  const line = pts => { for (let k = 1; k < pts.length; k++) { const p = rot(pts[k - 1]), q = rot(pts[k]), front = (p[2] + q[2]) / 2;
+    c.strokeStyle = front > 0 ? `rgb(180 156 255 / ${0.25 + 0.5 * front})` : 'rgb(180 156 255 / .07)'; c.lineWidth = front > 0 ? 1.2 : 0.8;
+    c.beginPath(); c.moveTo(cx + p[0] * R, cy + p[1] * R); c.lineTo(cx + q[0] * R, cy + q[1] * R); c.stroke(); } };
+  for (let la = -60; la <= 60; la += 30) { const r0 = Math.cos(la * Math.PI / 180), y0 = Math.sin(la * Math.PI / 180); line([...Array(49)].map((_, k) => [r0 * Math.cos(k / 48 * 6.2832), y0, r0 * Math.sin(k / 48 * 6.2832)])); }
+  for (let lo = 0; lo < 180; lo += 30) { const t = lo * Math.PI / 180; line([...Array(49)].map((_, k) => { const p = k / 48 * 6.2832; return [Math.cos(p) * Math.cos(t), Math.sin(p), Math.cos(p) * Math.sin(t)]; })); }
+  const eq = [...Array(49)].map((_, k) => [Math.cos(k / 48 * 6.2832), 0, Math.sin(k / 48 * 6.2832)]);   // the equator, brighter: the horizon of the ball
+  c.save(); c.shadowColor = '#b49cff'; c.shadowBlur = 8; line(eq); c.restore();
+  c.strokeStyle = 'rgb(255 255 255 / .35)'; c.setLineDash([3, 4]); c.beginPath(); c.arc(cx, cy, Math.max(4, dead / 350 * R * 0.85), 0, 6.2832); c.stroke(); c.setLineDash([]);   // dead-zone ring
+  c.strokeStyle = 'rgb(255 255 255 / .25)'; c.beginPath(); c.moveTo(cx - 10, cy); c.lineTo(cx + 10, cy); c.moveTo(cx, cy - 10); c.lineTo(cx, cy + 10); c.stroke();   // crosshair
+  const dx = cx + v[0] / 350 * R * 0.85, dy = cy + v[1] / 350 * R * 0.85, size = Math.max(3, 8 - v[2] / 350 * 6);
+  calTrail.push([dx, dy]); if (calTrail.length > 28) calTrail.shift();
+  calTrail.forEach(([x, y], k) => { c.fillStyle = `rgb(180 156 255 / ${k / calTrail.length * 0.35})`; c.beginPath(); c.arc(x, y, size * 0.6, 0, 6.2832); c.fill(); });
+  c.save(); c.shadowColor = '#d9ceff'; c.shadowBlur = 18; c.fillStyle = '#f2edff'; c.beginPath(); c.arc(dx, dy, size, 0, 6.2832); c.fill(); c.restore();
+  const hl = c.createRadialGradient(cx - R * 0.45, cy - R * 0.5, 0, cx - R * 0.45, cy - R * 0.5, R * 0.5); hl.addColorStop(0, 'rgb(255 255 255 / .16)'); hl.addColorStop(1, 'rgb(255 255 255 / 0)');
+  c.fillStyle = hl; c.beginPath(); c.arc(cx, cy, R, 0, 6.2832); c.fill();   // a glassy highlight
+}
+// ---------- ANALOG MOTION with virtual detents (spec "Next" priority, Chris 07:35: "the analog fix with the detent feel and adjustable
+// damping"). The Spaceball is a TORQUE: how hard you twist/tilt sets how hard the solid is pushed (dead zone, then a curve), against
+// its inertia and friction, so it rolls freely in any direction, diagonals included. Let go and a spring pulls the NEAREST screen to
+// the front (overshoot/bounce adjustable), with hysteresis so it never dithers between two neighbours; while you roll, a weaker
+// "notch" spring makes every screen a soft detent you push through. Keys, knob and jumps set the target and ride the same spring.
+// Step mode (one push = one screen, the original) stays in ⚙. All numbers live in prefs.motion[shape] (per shape).
+const MOTION_DEF = { sens: 1, dead: 25, curve: 0.6, inertia: 1, damping: 3.5, snap: 45, bounce: 0.3, notch: 0.08, hyst: 6 };   // tuned 07:4x: a medium push must carry past the next detent
+const MOTION_SHAPE = { cube: {}, cuboct: { sens: 0.9 }, rhombi: { sens: 0.7, notch: 0.1, hyst: 8 } };
+const mo = () => Object.assign({}, MOTION_DEF, MOTION_SHAPE[SH.name] || {}, (prefs.motion || {})[SH.name] || {});
+let W = [0, 0, 0], cmdTarget = false, tgtFace = -1, settled = true, lockedFace = 0, ballRead = '';
+const qConj = q => [q[0], -q[1], -q[2], -q[3]];
+function rotVecQ(v) { const a = Math.hypot(...v); if (a < 1e-9) return [1, 0, 0, 0]; const s = Math.sin(a / 2) / a; return [Math.cos(a / 2), v[0] * s, v[1] * s, v[2] * s]; }
+function errVec(from, to) { let e = qMul(to, qConj(from)); if (e[0] < 0) e = e.map(v => -v);   // the rotation (axis × angle, radians) that takes from → to
+  const sn = Math.hypot(e[1], e[2], e[3]); if (sn < 1e-9) return [0, 0, 0]; const ang = 2 * Math.atan2(sn, e[0]); return [e[1] / sn * ang, e[2] / sn * ang, e[3] / sn * ang]; }
+function nearestTarget(q, hystDeg) {                                     // the screen closest to facing you, sticky by hystDeg
+  let best = -1, bz = -2; for (const i of visible()) { const z = rotV(q, SH.slots[slotOf[i]].n)[2]; if (z > bz) { bz = z; best = i; } }
+  if (tgtFace >= 0 && slotOf[tgtFace] >= 0 && tgtFace !== best) {
+    const zc = rotV(q, SH.slots[slotOf[tgtFace]].n)[2], ac = Math.acos(Math.min(1, zc)), ab = Math.acos(Math.min(1, bz));
+    if (ac <= ab + hystDeg * Math.PI / 180) best = tgtFace;
+  }
+  const w = rotV(q, SH.slots[slotOf[best]].n), c = V.cross(w, [0, 0, 1]), sn = Math.hypot(...c);
+  const ax = sn < 1e-6 ? [0, 1, 0] : V.mul(c, 1 / sn), deg = Math.atan2(sn, w[2]) * 180 / Math.PI;
+  return { face: best, q: alignQ(qNorm(qMul(qAxis(ax[0], ax[1], ax[2], deg), q))) };
+}
+function shape(v, m) { const a = Math.abs(v); if (a <= m.dead) return 0; const x = Math.min(1, (a - m.dead) / (350 - m.dead)); return Math.sign(v) * Math.pow(x, 1 + m.curve); }
+// 07:45 Chris: "twisting the ball should rotate the face you are looking at — spinning the solid in your hand… side to side and up and
+// down roll it to new faces in those directions, plus the analog angles in between (up and left is 45)". HAND mode: twist = spin about
+// your line of sight; push (slide, or tilt: ⚙) = roll TOWARD that direction at whatever angle you push. The torque for "bring the face
+// in screen direction d to me" is about d × (toward you); push strength is shaped on the push's LENGTH, so 45° stays 45°.
+// Chris 07:45: "classical control for the cube if the user wants… as a toggle for the cube only". Every shape uses HAND; the cube alone
+// can switch back to the original one-push-one-face stepping. (The twist/tilt "analog" mode of 07:35 is kept in code, not offered.)
+const navMode = () => (SH.name === 'cube' && prefs.cubeClassic ? 'step' : 'hand');
+function handInput(pushing, forDrum) {
+  // 10:54 Chris (from the Ball tab): sliding a Spaceball sideways is "a weird push-pull-lift thing… not intuitive", while tilting it is
+  // natural: you grip a ball. Pucks (SpaceMouse) slide easily. So the default follows the device (LAYOUTS[pid].roll); his own choice wins.
+  const f = prefs.flip || {}, tilt = (prefs.handSrc || ((devLayout() || {}).roll) || 'slide') === 'tilt';
+  let ix = tilt ? -sbR[1] : sbT[0], iy = tilt ? sbR[0] : -sbT[1], tw = -sbR[2];       // screen right, screen up, clockwise twist (signs: ⚙ flips)
+  if (f.x) ix = -ix; if (f.y) iy = -iy; if (f.t) tw = -tw;
+  if (pushing || ballHush || (drumOpen() && !forDrum)) { ix = 0; iy = 0; tw = 0; }    // pushing down / pulling up = select / full screen, never a roll; the drum owns the ball while open
+  return { ix, iy, tw };
+}
+function physics(dt, spinV, tiltV, pushing) {
+  const m = mo(); let sx, sy, sz = 0;
+  if (navMode() === 'hand') {
+    const h = handInput(pushing), len = Math.hypot(h.ix, h.iy); let mag = shape(len, m), tw = shape(h.tw, m);
+    if (prefs.oneAxis !== false) { if (Math.abs(tw) < 0.6 * mag) tw = 0; else if (mag < 0.6 * Math.abs(tw)) mag = 0; }   // a tilt drags some twist along (and back): the clearly stronger one wins
+    const dx = len ? h.ix / len : 0, dyUp = len ? h.iy / len : 0;            // the push's direction on screen (y up)
+    sx = -dyUp * mag; sy = -dx * mag; sz = tw;                                // torque about screen x / y / z (see the note above)
+    ballRead = `roll right ${h.ix.toFixed(0)} · up ${h.iy.toFixed(0)} · twist ${h.tw.toFixed(0)}  |  raw slide ${sbT.map(v => v.toFixed(0)).join(' ')} · tilt/twist ${sbR.map(v => v.toFixed(0)).join(' ')}`;
+  } else { sy = shape(spinV, m); sx = -shape(tiltV, m); ballRead = `twist ${spinV.toFixed(0)} · tilt ${tiltV.toFixed(0)}`; }
+  const held = sx !== 0 || sy !== 0 || sz !== 0;
+  if (held) { cmdTarget = false; settled = false; }
+  if (!cmdTarget) { const t = nearestTarget(Q, m.hyst); if (t.face !== tgtFace) { tgtFace = t.face; Qt = t.q; present(Qt); } else Qt = t.q; }
+  const I = Math.max(0.05, m.inertia), K = m.snap * (held ? m.notch : 1) * (!held && performance.now() < knobFast ? 4 : 1);   // a knob step travels 2× faster (√4)
+  const zeta = 1 - 0.75 * Math.min(1, Math.max(0, m.bounce)), C = held ? m.damping : Math.max(m.damping * 0.5, 2 * zeta * Math.sqrt(K * I));
+  const tau = [20 * m.sens * sx, 20 * m.sens * sy, 28 * m.sens * sz];   // twist a bit stronger: a quarter-turn detent is 45° away, a roll's is ~22°   // analog: tilt = over the top, twist = side · hand: see handInput
+  const n = Math.max(1, Math.ceil(dt / 0.004)), h = dt / n;              // small substeps: stable at the stiffest settings and on a slow frame
+  let e = [0, 0, 0];
+  for (let s = 0; s < n; s++) { e = errVec(Q, Qt);
+    for (let j = 0; j < 3; j++) W[j] += ((tau[j] + K * e[j] - C * W[j]) / I) * h;
+    Q = qNorm(qMul(rotVecQ(V.mul(W, h)), Q)); }
+  if (knobPending >= 0 && frontOf(Q) === knobPending && Math.hypot(...e) < 0.026) { clickSound(); lockedFace = knobPending; knobPending = -1; }   // knob: tick the moment it's centred (≈1.5°), not after the wobble
+  if (!held && Math.hypot(...e) < 0.004 && Math.hypot(...W) < 0.03) {   // locked onto a screen
+    Q = Qt; W = [0, 0, 0]; cmdTarget = false;
+    if (!settled) { settled = true; present(Q); const f = frontOf(Q); if (f !== lockedFace) { lockedFace = f; clickSound(); } noteVisit(f); }   // (09:18: re-upright on EVERY settle; a 180° drag back onto the same face left it upside down)
+  } else if (!held) settled = false;
+}
+let actx = null;
+function chime() {                                                       // (Riven 7) a restrained two-note chime the FIRST time a session asks for Chris
+  if (prefs.sndAttn === false) return;
+  try { actx = actx || new AudioContext(); const t = actx.currentTime;
+    [[660, 0], [880, 0.13]].forEach(([f, d]) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.08, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35);
+      o.connect(g); g.connect(actx.destination); o.start(t + d); o.stop(t + d + 0.4); }); } catch (e) {}
+}
+function clickSound(freq = 2400, vol = 0.25, key = 'click') {          // a soft mechanical tick when a screen locks in; low = the offering's thunk (each switchable in ⚙)
+  if (prefs[key] === false) return;
+  try { actx = actx || new AudioContext(); const t = actx.currentTime, n = actx.createBufferSource(), b = actx.createBuffer(1, 800, actx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 6);
+    const f = actx.createBiquadFilter(), g = actx.createGain(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 3; g.gain.value = vol;
+    n.buffer = b; n.connect(f); f.connect(g); g.connect(actx.destination); n.start(t); } catch (e) {}
+}
+function renderMotion() {
+  const el = document.getElementById('motion'); if (!el) return; const m = mo(), fl = prefs.flip || {};
+  const sl = (k, label, min, max, step) => rng(`data-mo="${k}" min="${min}" max="${max}" step="${step}"`, label, m[k]);
+  el.innerHTML = `<div class="note">Hold the solid in your hand: twist the ball to spin it, push any way to roll toward that side. These sliders are saved for the ${SHAPES[SH.name] ? SHAPES[SH.name].label.split(' · ')[0].toLowerCase() : SH.name}.</div>` +
+    (SH.name === 'cube' ? tgl('p-classic', 'Classic control', 'Cube only: one push = one face, the original stepping.', prefs.cubeClassic) : '') +
+    `<div class="grp">The ball</div>` + fld('Roll with', seg('hsrc', [['slide', 'Slide the ball', 'natural on a puck (SpaceMouse)'], ['tilt', 'Tilt the ball', 'natural on a ball you grip (Spaceball)']], prefs.handSrc || ((devLayout() || {}).roll) || 'slide')) +
+    fld('Flip a direction if it goes the wrong way', `<div class="three">` + [['x', 'left / right'], ['y', 'up / down'], ['t', 'twist'], ['z', 'push / pull']].map(([k, t]) => tgl('', t, '', fl[k], `data-flip="${k}"`)).join('') + `</div>`) +
+    tgl('p-oneaxis', 'One motion at a time', 'Roll or twist, whichever is clearly stronger: a tilt never drags a twist along.', prefs.oneAxis !== false) +
+    tgl('p-upright', 'Keep every screen’s text upright', 'Off = faces keep their own turn; you twist them yourself.', prefs.upright !== false) +
+    `<div class="card"><span class="note">Ball right now</span><div class="readout" id="ballread">—</div></div>` +
+    `<div class="grp">Feel</div><div class="two">` +
+    [sl('sens', 'Sensitivity', 0.1, 3, 0.05), sl('dead', 'Dead zone', 0, 150, 5), sl('curve', 'Fine-control curve', 0, 2, 0.1), sl('inertia', 'Inertia', 0.2, 4, 0.1),
+     sl('damping', 'Damping', 0.5, 10, 0.25), sl('snap', 'Snap strength', 5, 150, 5), sl('bounce', 'Overshoot', 0, 1, 0.05), sl('notch', 'Detent while rolling', 0, 0.6, 0.02),
+     sl('hyst', 'Hysteresis (°)', 0, 20, 1)].join('') + `</div>` +
+    `<div class="grp">The offering</div><div class="two">` +
+    rng('id="p-offer" min="0" max="40" step="2"', 'Rise (0 = off)', prefs.offer ?? 35, (prefs.offer ?? 35) + '%') +
+    rng('id="p-offerd" min="0.3" max="4" step="0.1"', 'After resting', prefs.offerDelay ?? 1, (prefs.offerDelay ?? 1) + 's') + `</div>` +
+    `<div style="margin-top:10px"><button class="btn" id="mo-reset">Reset the feel for this shape</button></div>`;
+  el.querySelectorAll('[data-mo]').forEach(r => { r.oninput = () => { const mm = (prefs.motion = prefs.motion || {})[SH.name] = Object.assign({}, (prefs.motion || {})[SH.name] || {});
+    mm[r.dataset.mo] = +r.value; r.nextElementSibling.textContent = r.value; }; r.onchange = savePrefs; });
+  document.getElementById('p-oneaxis').onchange = e => { prefs.oneAxis = e.target.checked; savePrefs(); };
+  document.getElementById('p-upright').onchange = e => { prefs.upright = e.target.checked; savePrefs(); faces.forEach(f => { f.placed = false; }); present(Qt); };
+  const cc = document.getElementById('p-classic'); if (cc) cc.onchange = () => { prefs.cubeClassic = cc.checked; W = [0, 0, 0]; cmdTarget = true; savePrefs(); };
+  el.querySelectorAll('[name=hsrc]').forEach(r => { r.onchange = () => { prefs.handSrc = r.value; savePrefs(); }; });
+  el.querySelectorAll('[data-flip]').forEach(c => { c.onchange = () => { prefs.flip = Object.assign({}, prefs.flip || {}, { [c.dataset.flip]: c.checked }); savePrefs(); }; });
+  for (const [id, k] of [['p-offer', 'offer'], ['p-offerd', 'offerDelay']]) { const r = document.getElementById(id);
+    r.oninput = () => { prefs[k] = +r.value; r.nextElementSibling.textContent = r.value + (k === 'offer' ? '%' : 's'); }; r.onchange = savePrefs; }
+  document.getElementById('mo-reset').onclick = e => { e.preventDefault(); if (prefs.motion) delete prefs.motion[SH.name]; savePrefs(); renderMotion(); };
+}
+// ---------- HELP (Chris 11:24: "a full detail help system that dynamically updates based on button mapping"). Built fresh every time
+// the dialog opens, from the LIVE map: every ball line names the button by the device's own printed label (btnLabel), the motion lines
+// follow his Motion settings, and free buttons are listed as free. Change a mapping and the help changes with it.
+function helpSections() {
+  const B = prefs.buttons, L = devLayout(), tog = +document.getElementById('tog').textContent || 6, k = n => `[${btnLabel(n)}]`;
+  const ACT = { select: 'select the face in front (your typing goes to it)', full: 'full screen on / off', home: `home: back to your home face (${(prefs.homeFace ?? 0) + 1}), square`,
+    jump: 'jump: tap = the oldest face waiting for you, zoomed in (nothing waiting = it says so) · hold = the drum: waiting sessions, or all of them', back: 'history back: the faces you were on, newest first', forward: 'history forward: up the list again',
+    color1: 'colour group 1: tap = next face · hold = paint the face in front', color2: 'colour group 2: tap = next face · hold = paint',
+    color3: 'colour group 3: tap = next face · hold = paint', color4: 'colour group 4: tap = next face · hold = paint', quickref: 'the quick reference card (this map, at a glance)' };
+  const count = L ? Math.max(...Object.keys(L.labels).map(Number), 0) : Math.max(...Object.values(B).filter(Boolean), tog, 6);
+  const byBtn = {}; Object.entries(B).forEach(([a, n]) => { if (n) (byBtn[n] = byBtn[n] || []).push(ACT[a]); }); (byBtn[tog] = byBtn[tog] || []).push('hand the ball back to your Mac (press again to take it back)');
+  const ballMap = [...Array(count)].map((_, i) => i + 1).filter(n => !L || L.labels[n]).map(n => `${k(n)}  ${byBtn[n] ? byBtn[n].join(' + ') : '— free'}`);
+  const hand = navMode() === 'hand', tilt = (prefs.handSrc || (L || {}).roll || 'slide') === 'tilt';
+  const isWebFace = isWeb(cur());
+  return [
+    [`YOUR ${(L ? L.model : DEVICE ? DEVICE.name : 'BALL').toUpperCase()} — BUTTON BY BUTTON`, DEVICE ? ballMap : ['No 3D mouse found yet. Plug one in; its own map loads.', ...ballMap]],
+    ['MOVING THE SOLID WITH THE BALL', hand ? [`${tilt ? 'tilt' : 'slide'} the ball any way = roll toward that side (diagonals too)`, `${tilt ? 'slides are ignored (Motion → Roll with)' : 'tilts are ignored (Motion → Roll with)'}`,
+        'twist = spin the solid in place; it clicks into quarter turns', 'push down = select the face · push again = full screen', 'pull up = back out to the solid',
+        'let go = it settles on the nearest screen (feel: Motion tab)'] : ['classic control (cube): one push = one face', 'twist = side to side · tilt = over the top', 'push down = select · again = full screen · pull up = out']],
+    ['THE ROLODEX + FAST SWAP', ['inside a face, twist the ball: your running sessions roll up at the right edge', 'a right twist rolls it up · a left twist rolls it down',
+        'push in = go to the framed session · pull up = close and stay', 'left alone for 4 seconds it closes itself · it takes no key and no click: keep typing',
+        'only faces with something running are listed (plus browser faces and anything waiting for you)', `Fast Swap is ${prefs.fastSwap ? 'ON' : 'off'} (Look tab): on = straight into the face, a pulse on its border · off = out, roll, in`]],
+    ['COLOUR GROUPS', [`${k(B.color1)} ${k(B.color2)} ${k(B.color3)} ${k(B.color4)} on the ball = groups 1–4`, 'tap = go to the next face in that group', 'hold = paint the face in front (hold again = clear)',
+        'keyboard: Ctrl+Option+7 8 9 0 · tap = next · double-tap = paint', 'colours + names: Colours tab · "group by colour" puts them side by side']],
+    ['WHEN A SESSION NEEDS YOU', ['the face breathes a glow in its own colour and shows ◆!', 'a list top-right names it; click an entry to go there', `${k(B.jump)} = jump in · ${k(B.back)} ${k(B.forward)} = history back / forward · keys Ctrl+Option+J, B, F`,
+        'it clears only when the session moves on, never just by looking', 'the longer it waits, the whiter the glow (Attention tab)']],
+    ['THE SOLID', ['rest on a face and it rises out of the solid after a moment (the offering)', 'roll away and it sinks back as the next comes around',
+        'shapes: cube (full-size screens), cuboctahedron, rhombicuboctahedron (18, an overview)', 'parked sessions keep running; Look tab puts them back']],
+    ['MOUSE + TRACKPAD', ['drag = spin it (a fling coasts) · click a face = go there', 'double-click = zoom in · right-click in full screen = back out', 'right-drag, Option-drag or wheel-press drag = twist',
+        'Option + scroll = twist · two-finger swipe = spin · rotate = twist', 'pinch out = zoom in · pinch in = back out']],
+    ['POWERMATE KNOB', [SH.name === 'cube' ? 'turn = roll' : 'turn = step through the faces in order (1, 2, 3…); on the cube it rolls', SH.name === 'cube' ? 'tap = side-to-side ⇄ top-to-bottom' : 'tap = (cube only: side ⇄ top)', 'double tap = select', 'long press = full screen', 'in full screen: one tap = back out', 'Ctrl+Option+K = hand it to your Mac and back']],
+    ['KEYBOARD (Ctrl+Option)', ['Omarchy mode (Look tab), on the cube: ← → = previous / next face · ↑ = into it · in a face: ⌘↓ (or ⌃⌥↓) = back out', 'arrows = roll · Return = full screen', '1–6 = jump to that face · [ ] = quarter twist', '7 8 9 0 = colour groups', 'J = jump to a waiting face · W or ⌘J = the drum (↑ ↓ one row, Return go, Esc close) · B / F = history back / forward', 'H = home face ⌂ · / = quick reference card · K = PowerMate ⇄ your Mac', 'O = this face\'s session out to a Terminal window', 'Esc = close settings or the card']],
+    ['MOVING SESSIONS IN AND OUT', ['in a Terminal window\'s Claude session: type ! tess (or ask it to) = it moves onto a free face · ! tess 4 = onto face 4',
+        'in a face: Ctrl+Option+O (or ! tess out) = it moves to a new Terminal window', 'it moves when it finishes its turn, never in the middle; the whole conversation comes along',
+        'background jobs the old session had running do not come along']],
+    ['FULL SCREEN + BROWSER FACES', ['full screen grows out of the face and shrinks back into it', 'the solid and the space stand still while you work there',
+        `browser faces: Browser tab${isWebFace ? ' (the face in front IS one)' : ''} · address bar in full screen`, '⌘⌥↩ = back to the cube from a browser face']],
+    ['SETTINGS TABS', ['Look: shape · material · light · space', 'Motion: how the ball moves it + the offering', 'Ball: live calibration + zero a biased axis',
+        'Colours · Attention · Buttons (map any button) · Browser', 'this Help rewrites itself whenever you change a button']]];
+}
+function toggleSettings(open) {
+  const want = open ?? !help.classList.contains('on'); help.classList.toggle('on', want); if (want) renderPrefs();
+  if (fullFace >= 0 && isWeb(fullFace)) { if (want) NATIVE && NATIVE.postMessage({ op: 'hide', face: fullFace }); else showWeb(fullFace); }   // (08:49: never under a browser face)
+}
+document.getElementById('gear').onclick = () => toggleSettings();
+document.getElementById('dclose').onclick = () => toggleSettings(false);
+help.addEventListener('mousedown', e => { if (e.target === help) toggleSettings(false); });     // a click on the backdrop closes it
+addEventListener('keydown', e => { if (e.key === 'Escape' && qrefOpen()) { e.preventDefault(); e.stopPropagation(); showQuickRef(false); } }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && help.classList.contains('on')) { e.preventDefault(); e.stopPropagation(); toggleSettings(false); } }, true);
+faces.forEach(label);                                                  // after fullFace exists (label reads it)
+sizeBg(); requestAnimationFrame(bgLoop);
+applyPrefs();                                                          // defaults until the server sends the saved prefs
+// 22:58 Chris: the top of Claude's little mascot was clipped on the cube. The terminals kept an old row count after the title bar grew
+// (and another page on the same server can resize the shells), so each terminal now refits whenever its box changes size, and all of
+// them refit when this window comes back to the front.
+// 23:03 the clipped mascot was Claude Code's own layout: under ~70 columns it drops the top of its header. Measured: 66 cols = gone,
+// 73+ cols = all there. So the cube's faces use 10 px text (73+ columns even in a small window).
+const ro = new ResizeObserver(es => es.forEach(e => { const f = faces.find(x => x.host === e.target); if (f) refit(f); }));
+faces.forEach(f => ro.observe(f.host));
+addEventListener('focus', () => faces.forEach(refit));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) faces.forEach(refit); });
+if (!TerminalCls || !FitCls) help.textContent = 'xterm.js did not load (vendor files)';
+</script>
+<script type="module" src="/gl.js"></script></body></html>

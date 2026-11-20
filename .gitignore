@@ -1,0 +1,10 @@
+mac/build/
+*.bak-*
+*.v1-*
+__pycache__/
+.DS_Store
+WHAT-THIS-IS.md
+RESTART-*.md
+TODO.md
+BLOCK-CONTROL.md
+SPEC-*.md
